@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="camera_arm">
+  <link
+    name="base_link">
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link
+    name="Theta_Link">
+    <inertial>
+      <origin
+        xyz="-1.7727E-19 0.12487 -0.00016187"
+        rpy="0 0 0" />
+      <mass
+        value="0.31147" />
+      <inertia
+        ixx="0.0016552"
+        ixy="-2.6472E-21"
+        ixz="7.0687E-22"
+        iyy="6.1873E-05"
+        iyz="7.6279E-07"
+        izz="0.0016562" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/Theta_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/Theta_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link
+    name="Z_Link">
+    <inertial>
+      <origin
+        xyz="-0.0055474 0.015 -5.0474E-17"
+        rpy="0 0 0" />
+      <mass
+        value="0.10708" />
+      <inertia
+        ixx="4.5404E-05"
+        ixy="4.9501E-21"
+        ixz="-8.6592E-20"
+        iyy="0.00012312"
+        iyz="-1.7139E-21"
+        izz="9.5774E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/Z_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/Z_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link
+    name="R_Link">
+    <inertial>
+      <origin
+        xyz="-2.0817E-17 2.7756E-17 -0.11575"
+        rpy="0 0 0" />
+      <mass
+        value="0.11647" />
+      <inertia
+        ixx="0.00083246"
+        ixy="-4.8583E-22"
+        ixz="-1.6176E-20"
+        iyy="0.00083253"
+        iyz="9.6815E-20"
+        izz="7.8325E-06" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/R_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/R_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link
+    name="CYaw_Link">
+    <inertial>
+      <origin
+        xyz="1.3878E-17 0.010286 0"
+        rpy="0 0 0" />
+      <mass
+        value="0.047153" />
+      <inertia
+        ixx="5.7529E-05"
+        ixy="-2.1566E-21"
+        ixz="-3.851E-22"
+        iyy="3.7326E-05"
+        iyz="-8.4127E-21"
+        izz="2.3296E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/CYaw_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/CYaw_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link
+    name="Cpitch_Link">
+    <inertial>
+      <origin
+        xyz="5.0372E-06 1.2109E-05 0.00011207"
+        rpy="0 3.1416 0" />
+      <mass
+        value="0.050831" />
+      <inertia
+        ixx="8.1041E-06"
+        ixy="1.6709E-09"
+        ixz="-3.0436E-09"
+        iyy="1.9517E-05"
+        iyz="-7.317E-09"
+        izz="2.4255E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 3.1416 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/Cpitch_Link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://arm_description/meshes/Cpitch_Link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="camera_optical_frame"/>
+
+  <joint
+    name="Theta_Joint"
+    type="revolute">
+    <origin
+      xyz="0 0 0.015"
+      rpy="1.5708 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="Theta_Link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+
+  <joint
+    name="R_Joint"
+    type="prismatic">
+    <origin
+      xyz="-0.027553 0.015 0"
+      rpy="0 0 -3.1416" />
+    <parent
+      link="Z_Link" />
+    <child
+      link="R_Link" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="0"
+      upper="0.2"
+      effort="0"
+      velocity="0" />
+  </joint>
+  
+  <joint
+    name="Z_Joint"
+    type="prismatic">
+    <origin
+      xyz="0 0.22 0.02"
+      rpy="0 1.5708 0" />
+    <parent
+      link="Theta_Link" />
+    <child
+      link="Z_Link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-0.19"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+
+  <joint
+    name="Yaw_Joint"
+    type="revolute">
+    <origin
+      xyz="0 0.05285 -0.26"
+      rpy="0 0 3.1416" />
+    <parent
+      link="R_Link" />
+    <child
+      link="CYaw_Link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="0"
+      velocity="0" />
+  </joint>
+
+  <joint
+    name="Pitch_Joint"
+    type="revolute">
+    <origin
+      xyz="0 -0.025124 0"
+      rpy="0 -1.5708 0" />
+    <parent
+      link="CYaw_Link" />
+    <child
+      link="Cpitch_Link" />
+    <axis
+      xyz="1 0 0" />
+    <limit
+      lower="-1.57"
+      upper="1"
+      effort="0"
+      velocity="0" />
+  </joint>
+
+  <!-- Optical frame the camera images are stamped in (z forward, x right, y down) -->
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="Cpitch_Link"/>
+    <child link="camera_optical_frame"/>
+    <origin xyz="0.04 0 0" rpy="0 3.1416 3.1416"/>
+  </joint>
+
+  <!-- Pillar in front of the camera (at the zero pose the camera looks along +y of base_link) -->
+  <link name="pillar">
+    <visual>
+      <geometry><box size="0.05 0.05 0.4"/></geometry>
+      <material name="pillar_mat"><color rgba="0.9 0.1 0.1 1"/></material>
+    </visual>
+  </link>
+  <joint name="pillar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="pillar"/>
+    <origin xyz="0.22 0.35 0.2" rpy="0 0 0"/>
+  </joint>
+</robot>
