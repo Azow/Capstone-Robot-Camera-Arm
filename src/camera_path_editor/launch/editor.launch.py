@@ -1,0 +1,43 @@
+"""Start the camera path editor: table panel, path node, and RViz (no arm model)."""
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    share = get_package_share_directory('camera_path_editor')
+    rviz_config = os.path.join(share, 'rviz', 'editor.rviz')
+
+    points_per_segment = LaunchConfiguration('points_per_segment')
+
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'points_per_segment', default_value='10',
+            description='Dense points generated per segment (same for both paths)'),
+
+        Node(
+            package='camera_path_editor',
+            executable='path_node',
+            name='camera_path_node',
+            output='screen',
+            parameters=[{'points_per_segment': points_per_segment}],
+        ),
+        Node(
+            package='camera_path_editor',
+            executable='path_panel',
+            name='camera_path_panel',
+            output='screen',
+        ),
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            arguments=['-d', rviz_config],
+            output='screen',
+        ),
+    ])

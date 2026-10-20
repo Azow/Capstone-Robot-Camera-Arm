@@ -1,0 +1,157 @@
+# camera_path_editor
+
+Type in camera moves as pairs of points and see them drawn in RViz, and save or
+load them as files. Data entry and visualization only. No robot motion, no timing.
+
+A camera move is two paths built together, row by row:
+
+- **Camera path**: where the camera body goes (drawn **blue**).
+- **Focus path**: the point the camera aims and focuses at (drawn **red**).
+- **Aim arrows** (drawn **green**, see-through): from every dense camera point
+  to the matching focus point, showing where the camera looks along the move.
+
+Row *n* means "the camera is at this blue point, looking at this red point."
+The matching numbers on the blue and red spheres show which ones go together.
+
+All coordinates are **meters** relative to the robot base (`base_link`):
+x forward, y left, z up.
+
+## Packages
+
+| Package | What it is |
+|---|---|
+| `camera_path_interfaces` | Message definitions only (`PathRow`, `PathTable`). No code. |
+| `camera_path_editor` | The panel, the path node, the launch file, and the RViz config. |
+
+```
+ path_panel  --PathTable on /camera_path/table-->  path_node  --MarkerArray on /camera_path/markers-->  RViz
+ (you type)                                       (samples paths)                                      (you look)
+```
+
+## Build
+
+```bash
+cd ~/capstone_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select camera_path_interfaces camera_path_editor
+source install/setup.bash
+```
+
+## Launch
+
+```bash
+ros2 launch camera_path_editor editor.launch.py
+```
+
+This opens two windows: the **Camera Path Editor** table and **RViz**. It does
+not load the arm model. `arm_description` and its launch files are separate and
+unchanged.
+
+Optional: change how many points are generated per segment (default 10).
+This also sets how many aim arrows are drawn per segment:
+
+```bash
+ros2 launch camera_path_editor editor.launch.py points_per_segment:=5
+```
+
+## Using the panel
+
+- **Add row** appends a row at the end, copying the last row's values.
+- **Insert row** adds a row directly below the selected row, copying it.
+- **Delete row**, **Move up**, **Move down** act on the selected row.
+- Double-click a number to edit it. Press Enter or click away to apply.
+  Anything that isn't a number is rejected and the old value is kept.
+- Between each pair of rows there is a **camera segment** and a **focus
+  segment** dropdown. In V1 the only choice is `linear` (a straight line).
+- Rows renumber automatically. Every change updates RViz immediately.
+- **Save...** writes the table (rows and segment types) to a `.json` file.
+  **Load...** replaces the current table with one from a file and redraws.
+  The window title shows the file last saved or loaded. Loading does not ask
+  about unsaved changes, so save first if you want to keep them.
+
+### File format
+
+One row per line, so files are easy to read and edit by hand:
+
+```json
+{
+  "version": 1,
+  "rows": [
+    {"camera": [0.6, -0.4, 0.3], "focus": [0.0, 0.0, 0.2]},
+    {"camera": [0.6, 0.0, 0.5], "focus": [0.0, 0.0, 0.2]}
+  ],
+  "camera_segment_types": ["linear"],
+  "focus_segment_types": ["linear"]
+}
+```
+
+A file with a broken row (not 3 numbers, not valid JSON) is refused and the
+current table is left alone. Missing or unknown segment types load as `linear`,
+and the status line says which ones were changed.
+
+Since Add copies the previous row, a new point appears exactly on top of the
+previous one in RViz until you change its numbers.
+
+## Testing without the panel
+
+Run the node on its own and publish a table by hand:
+
+```bash
+ros2 run camera_path_editor path_node
+```
+
+```bash
+ros2 topic pub --once --qos-durability transient_local --qos-reliability reliable /camera_path/table camera_path_interfaces/msg/PathTable "{rows: [{camera: {x: 0.6, y: -0.4, z: 0.3}, focus: {x: 0.0, y: 0.0, z: 0.2}}, {camera: {x: 0.6, y: 0.0, z: 0.5}, focus: {x: 0.0, y: 0.0, z: 0.2}}, {camera: {x: 0.6, y: 0.4, z: 0.3}, focus: {x: 0.0, y: 0.0, z: 0.2}}], camera_segment_types: [linear, linear], focus_segment_types: [linear, linear]}"
+```
+
+The node logs the dense point counts on every update, e.g.
+`Drew 3 rows (N=10): camera path 21 points, focus path 21 points, 21 aim arrows`.
+An arrow is skipped wherever the camera sits exactly on its focus point.
+
+Unit tests for the sampling math and the file format:
+
+```bash
+cd ~/capstone_ws/src/camera_path_editor && python3 -m pytest test
+```
+
+## Node parameters (`path_node`)
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `points_per_segment` | 10 | Points per segment (N), and aim arrows per segment. Can be changed while running; the picture redraws. |
+| `frame_id` | `base_link` | Frame all markers are drawn in. |
+
+## How the dense points are made
+
+Each segment produces exactly N points at u = 0, 1/N, ..., (N-1)/N, and the
+final waypoint is added once at the end, so each path has `(rows - 1) * N + 1`
+points. The camera path and focus path always use the same N and the same u
+values, so point k of one always pairs with point k of the other, even when one
+segment is much longer than the other. Timing will rely on this later. The math
+lives in `camera_path_editor/sampling.py`, which is where new segment types
+(splines) will be added.
+
+## Changes from the V1 spec, and why
+
+- **Two packages instead of three.** Messages must be built with CMake
+  (`ament_cmake`), so they stay in their own package. The node and panel are
+  both Python and live together in `camera_path_editor` to keep all tool code
+  in one place.
+- **Renamed** to drop the "shot" wording: packages `camera_path_interfaces` /
+  `camera_path_editor`, messages `PathRow` / `PathTable`, topics
+  `/camera_path/table` / `/camera_path/markers`.
+- **Fixed frame is `base_link`**, not `world`, so paths are relative to the
+  arm base. It is the `frame_id` node parameter.
+- **Panel is Option B**: a standalone Python window (PyQt5 via
+  `python_qt_binding`, already installed with ROS) instead of a C++ RViz
+  plugin. The node and messages don't depend on this choice.
+- **New rows copy** the selected or last row instead of starting at zero.
+- **Changing `points_per_segment` at runtime redraws immediately**, so the
+  N=5 check can be done without restarting.
+- **Segment types stay with their position when rows move.** Moving a row
+  swaps the waypoints but not the dropdowns between them. With only `linear`
+  this makes no visible difference; worth revisiting once curves exist.
+- **The RViz config adds a grid and a small axes marker** at the base origin
+  for orientation.
+- The panel publishes an empty table when it starts, so RViz matches the
+  empty panel instead of showing a leftover path from a previous session.
