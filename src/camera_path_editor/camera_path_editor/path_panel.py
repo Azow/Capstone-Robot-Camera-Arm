@@ -17,12 +17,12 @@ import sys
 
 import rclpy
 from camera_path_interfaces.msg import PathIkStatus, PathRow, PathTable, PlaybackState
-from python_qt_binding.QtCore import Qt, QTimer
+from python_qt_binding.QtCore import QEvent, QRect, Qt, QTimer
 from python_qt_binding.QtGui import QColor
 from python_qt_binding.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView,
-    QLabel, QMainWindow, QMessageBox, QPushButton, QSlider, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QLabel, QMainWindow, QMessageBox, QPushButton, QSlider, QStyle, QStyledItemDelegate,
+    QStyleOptionButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
@@ -55,6 +55,10 @@ FOCUS_COLS = (4, 5, 6)
 IK_COL = 7
 NUMBER_COL_WIDTH = 100
 IK_PROBLEM_COLOR = QColor(200, 30, 30)
+# The -/+ buttons along the bottom of each number cell.
+STEP = 0.01                 # meters per click
+STEP_BUTTON_HEIGHT = 18
+WAYPOINT_ROW_HEIGHT = 46    # room for the number above the buttons
 
 LATCHED_QOS = QoSProfile(
     depth=1,
@@ -65,6 +69,54 @@ LATCHED_QOS = QoSProfile(
 
 def _fmt(value):
     return format(value, 'g')
+
+
+class StepDelegate(QStyledItemDelegate):
+    """Draws - and + buttons along the bottom of a number cell; clicking one calls
+    on_step(table_row, col, -1 or +1). Double-clicking the number still edits it."""
+
+    def __init__(self, on_step, parent=None):
+        super().__init__(parent)
+        self._on_step = on_step
+
+    @staticmethod
+    def _button_rects(rect):
+        half = (rect.width() - 6) // 2
+        top = rect.bottom() - STEP_BUTTON_HEIGHT - 1
+        minus = QRect(rect.left() + 2, top, half, STEP_BUTTON_HEIGHT)
+        plus = QRect(minus.right() + 3, top, half, STEP_BUTTON_HEIGHT)
+        return minus, plus
+
+    @staticmethod
+    def _has_buttons(index):
+        # Segment rows have no item in these columns (a dropdown covers them).
+        return index.data(Qt.DisplayRole) is not None
+
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        if not self._has_buttons(index):
+            return
+        style = option.widget.style() if option.widget else QApplication.style()
+        for rect, text in zip(self._button_rects(option.rect), ('\u2212', '+')):
+            button = QStyleOptionButton()
+            button.rect = rect
+            button.text = text
+            button.state = QStyle.State_Enabled | QStyle.State_Raised
+            style.drawControl(QStyle.CE_PushButton, button, painter, option.widget)
+
+    def editorEvent(self, event, model, option, index):
+        if self._has_buttons(index) and event.type() in (
+                QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
+            minus, plus = self._button_rects(option.rect)
+            for rect, direction in ((minus, -1), (plus, 1)):
+                if rect.contains(event.pos()):
+                    # Step on release, and on the double-click event: Qt doesn't pass on
+                    # the release that follows a double-click, so a quick second click
+                    # would be lost. Presses are swallowed so the text editor stays shut.
+                    if event.type() != QEvent.MouseButtonPress:
+                        self._on_step(index.row(), index.column(), direction)
+                    return True
+        return super().editorEvent(event, model, option, index)
 
 
 class PathPanel(QMainWindow):
@@ -104,6 +156,9 @@ class PathPanel(QMainWindow):
         # The IK column takes the rest of the width; its messages can be long.
         header.setSectionResizeMode(IK_COL, QHeaderView.Stretch)
         self._table.itemChanged.connect(self._on_item_changed)
+        self._step_delegate = StepDelegate(self._on_step, self._table)
+        for col in CAMERA_COLS + FOCUS_COLS:
+            self._table.setItemDelegateForColumn(col, self._step_delegate)
 
         buttons = QHBoxLayout()
         for text, slot in (
@@ -316,9 +371,11 @@ class PathPanel(QMainWindow):
             number.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             number.setTextAlignment(Qt.AlignCenter)
             self._table.setItem(table_row, 0, number)
+            self._table.setRowHeight(table_row, WAYPOINT_ROW_HEIGHT)
             for col, value in zip(CAMERA_COLS + FOCUS_COLS, values):
                 item = QTableWidgetItem(_fmt(value))
-                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                # Top, so the number sits above the -/+ buttons.
+                item.setTextAlignment(Qt.AlignRight | Qt.AlignTop)
                 self._table.setItem(table_row, col, item)
 
             if i < len(self._rows) - 1:
@@ -380,6 +437,17 @@ class PathPanel(QMainWindow):
         if value != old:
             self._rows[index][field] = value
             self._publish()
+
+    def _on_step(self, table_row, col, direction):
+        index, field = table_row // 2, col - 1
+        # Round off float noise (0.1 + 0.01 = 0.11000000000000001); + 0.0 turns -0 into 0.
+        value = round(self._rows[index][field] + direction * STEP, 9) + 0.0
+        self._rows[index][field] = value
+        self._table.blockSignals(True)
+        self._table.item(table_row, col).setText(_fmt(value))
+        self._table.blockSignals(False)
+        self._table.setCurrentCell(table_row, col)
+        self._publish()
 
     def _on_segment_changed(self, segs, gap, text):
         segs[gap] = text

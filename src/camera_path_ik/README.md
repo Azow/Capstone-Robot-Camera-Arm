@@ -64,9 +64,9 @@ Optional launch arguments:
 - `arrow_every:=1`: how often the editor draws an aim arrow (default every 2nd point).
 - `playback_rate:=10.0`: path points played per second at 1x speed (default 20, so one
   segment per second). Change it together with `points_per_segment` to keep the same speed.
-- `free_spin:=false`: use the URDF's Theta and Yaw limits. **Temporarily on
-  (`true`) by default**, so Theta and Yaw can spin freely, any number of turns.
-  The other joints always keep their limits.
+- `free_spin:=true`: ignore the URDF's Theta and Yaw limits, so they can spin
+  freely, any number of turns. Off by default: the arm keeps every URDF joint
+  limit. The other joints always keep their limits.
 
 The arm is `arm_description_v2`'s `camera_arm_v2.urdf`. `describe_arm` prints
 what the solver measured:
@@ -107,7 +107,7 @@ their limits.
 | `points_per_segment` | 20 | Must match the editor's `path_node` so both use the same points. |
 | `playback_rate` | 20.0 | Path points played per second at 1x. |
 | `speed` | 1.0 | Multiplier on `playback_rate`. The editor's Speed dropdown sets it. |
-| `free_spin` | false | Ignore the Theta and Yaw limits. Read once at startup. (The launch file turns it on for now.) |
+| `free_spin` | false | Ignore the Theta and Yaw limits. Read once at startup. |
 
 All but `urdf_path` and `free_spin` can be changed while running. `points_per_segment` re-solves
 the path (back to the first point, paused); `playback_rate` and `speed` only change the timing.
@@ -245,5 +245,5 @@ at about 0.3 ms per point.
 - With `free_spin:=false`, Theta and Yaw are limited to +-3.14 rad, so the
   camera can't circle past the +x side of the base (Theta = +-180 deg). A path
   that needs to stops there with "Theta/Yaw would pass its limit" instead of
-  spinning a full turn back. With `free_spin` on (the current default) there is
+  spinning a full turn back. With `free_spin:=true` there is
   no such stop, and nothing tracks how many turns the cables could take.

@@ -42,9 +42,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'playback_rate', default_value='20.0',
             description='Path points played per second'),
-        # Temporary: on by default for now. Use free_spin:=false for the URDF limits.
+        # Off: the arm keeps every URDF joint limit. free_spin:=true is a testing aid.
         DeclareLaunchArgument(
-            'free_spin', default_value='true',
+            'free_spin', default_value='false',
             description='Ignore the Theta and Yaw limits so they can spin freely'),
 
         # The editor: table panel and path drawing.

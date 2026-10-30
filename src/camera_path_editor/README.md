@@ -62,6 +62,8 @@ ros2 launch camera_path_editor editor.launch.py points_per_segment:=5 arrow_ever
 - **Delete row**, **Move up**, **Move down** act on the selected row.
 - Double-click a number to edit it. Press Enter or click away to apply.
   Anything that isn't a number is rejected and the old value is kept.
+- The **−** and **+** buttons along the bottom of each number change it by
+  0.01 m per click, for fine adjustments. Each click is applied right away.
 - Between each pair of rows there is a **camera segment** and a **focus
   segment** dropdown. In V1 the only choice is `linear` (a straight line).
 - Rows renumber automatically. Every change updates RViz immediately.

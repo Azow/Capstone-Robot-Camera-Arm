@@ -158,6 +158,21 @@ def test_path_stops_at_first_unreachable_point():
     assert [r.reached for r in results] == [True, True, False]
 
 
+@needs_real_urdf
+def test_paths_never_leave_the_joint_limits():
+    # Random waypoints, many out of reach: whatever the solver hands back to play
+    # must be inside every URDF limit, never clamped past one or wrapped around.
+    solver = _solver(REAL_URDF.read_text())
+    m = solver.model
+    rng = np.random.default_rng(2)
+    for _ in range(200):
+        cameras = rng.uniform([-0.5, -0.5, -0.15], [0.5, 0.5, 0.7], size=(8, 3))
+        focuses = rng.uniform([-1.0, -1.0, -0.5], [1.0, 1.0, 1.0], size=(8, 3))
+        for result in solver.solve_path(cameras, focuses):
+            if result.reached:
+                assert np.all(result.q >= m.lower) and np.all(result.q <= m.upper)
+
+
 # ----- cross-check against the numerical solver ------------------------------
 
 @needs_real_urdf
