@@ -20,7 +20,7 @@ x forward, y left, z up.
 
 | Package | What it is |
 |---|---|
-| `camera_path_interfaces` | Message definitions only (`PathRow`, `PathTable`). No code. |
+| `camera_path_interfaces` | Message definitions only (`PathRow`, `PathTable`, and `PathIkStatus` for the IK column). No code. |
 | `camera_path_editor` | The panel, the path node, the launch file, and the RViz config. |
 
 ```
@@ -64,6 +64,15 @@ ros2 launch camera_path_editor editor.launch.py points_per_segment:=5
 - Between each pair of rows there is a **camera segment** and a **focus
   segment** dropdown. In V1 the only choice is `linear` (a straight line).
 - Rows renumber automatically. Every change updates RViz immediately.
+- The **IK** column (far right) is filled in by `camera_path_ik` when it is
+  running (`ros2 launch camera_path_ik preview.launch.py`). It stays empty
+  when the whole path is reachable. Otherwise it shows, in red, why the first
+  unreachable point can't be reached: on that row, or on the segment line
+  between two rows if the point is partway along. Hover for the full text.
+  The bottom right says which path point it is, or that all are reachable.
+- **Show aim arrows** turns the green arrows on and off. It is a display
+  setting only: it is not saved in the file. It sets path_node's
+  `show_aim_arrows` parameter, so path_node must be running.
 - **Save...** writes the table (rows and segment types) to a `.json` file.
   **Load...** replaces the current table with one from a file and redraws.
   The window title shows the file last saved or loaded. Loading does not ask
@@ -120,6 +129,7 @@ cd ~/capstone_ws/src/camera_path_editor && python3 -m pytest test
 |---|---|---|
 | `points_per_segment` | 10 | Points per segment (N), and aim arrows per segment. Can be changed while running; the picture redraws. |
 | `frame_id` | `base_link` | Frame all markers are drawn in. |
+| `show_aim_arrows` | `true` | Draw the green aim arrows. The panel's checkbox sets it; can be changed while running. |
 
 ## How the dense points are made
 

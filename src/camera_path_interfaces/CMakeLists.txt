@@ -8,6 +8,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PathRow.msg"
   "msg/PathTable.msg"
+  "msg/PathIkStatus.msg"
   DEPENDENCIES geometry_msgs
 )
 

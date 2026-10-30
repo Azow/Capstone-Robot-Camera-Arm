@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "rows": [
+    {"camera": [-0.15, 0.15, 0.05], "focus": [0.22, 0.35, 0.1]},
+    {"camera": [-0.05, 0.2, 0.1], "focus": [0.22, 0.35, 0.2]},
+    {"camera": [0.1, 0.18, 0.15], "focus": [0.22, 0.35, 0.3]},
+    {"camera": [0.18, 0.05, 0.08], "focus": [0.22, 0.35, 0.15]}
+  ],
+  "camera_segment_types": ["linear", "linear", "linear"],
+  "focus_segment_types": ["linear", "linear", "linear"]
+}

@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="Robotic Camera Arm Prototype Assem 1.SLDASM">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-2.27782660584949E-10 3.67005299113982E-09 -0.0210125272705798"
+        rpy="0 0 0" />
+      <mass
+        value="1.81215211898536" />
+      <inertia
+        ixx="0.01313648481332"
+        ixy="7.31803112692465E-12"
+        ixz="6.84453383261944E-12"
+        iyy="0.0131364864971961"
+        iyz="-1.10279680792859E-10"
+        izz="0.025692073964106" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.894117647058823 0.894117647058823 0.894117647058823 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="Rotating_Base">
+    <inertial>
+      <origin
+        xyz="3.04735280424216E-05 -0.152130732158363 0.0955721763812684"
+        rpy="0 0 0" />
+      <mass
+        value="4.87575599308676" />
+      <inertia
+        ixx="0.0483683795699628"
+        ixy="-4.26006723949936E-07"
+        ixz="0.000165780524787756"
+        iyy="0.0634809996326897"
+        iyz="2.5596619675937E-09"
+        izz="0.0483634267744175" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Rotating_Base.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Rotating_Base.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Theta"
+    type="revolute">
+    <origin
+      xyz="0 0 0"
+      rpy="-1.5708 0 -1.5708" />
+    <parent
+      link="base_link" />
+    <child
+      link="Rotating_Base" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Carriage">
+    <inertial>
+      <origin
+        xyz="-0.0936300572129703 0.0994271100678407 0.0712083013756296"
+        rpy="0 0 0" />
+      <mass
+        value="1.06103036578235" />
+      <inertia
+        ixx="0.00642130943103423"
+        ixy="-1.41506940035976E-06"
+        ixz="3.78672047856759E-06"
+        iyy="0.0074326720984421"
+        iyz="7.46993042765627E-06"
+        izz="0.00950828147719121" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Carriage.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Carriage.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Z"
+    type="prismatic">
+    <origin
+      xyz="0.10025 -0.30653 0.3248"
+      rpy="1.5708 -1.5708 0" />
+    <parent
+      link="Rotating_Base" />
+    <child
+      link="Carriage" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Z_Arm">
+    <inertial>
+      <origin
+        xyz="-0.0282002348257729 0.0385175442030404 -0.236030291728383"
+        rpy="0 0 0" />
+      <mass
+        value="1.17419744975491" />
+      <inertia
+        ixx="0.0122723876023866"
+        ixy="0.000182891002582944"
+        ixz="0.000125744906764401"
+        iyy="0.00970899716983699"
+        iyz="-0.000247303091108257"
+        izz="0.00349709266689416" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Z_Arm.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Z_Arm.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="R"
+    type="prismatic">
+    <origin
+      xyz="0.0943 0.06275 0.027475"
+      rpy="-1.5708 1.4816 -1.5708" />
+    <parent
+      link="Carriage" />
+    <child
+      link="Z_Arm" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Yaw_Gimbal">
+    <inertial>
+      <origin
+        xyz="0.0212917906843229 0.0352433665511813 -0.125000001935704"
+        rpy="0 0 0" />
+      <mass
+        value="0.789180551795657" />
+      <inertia
+        ixx="0.00671828615932125"
+        ixy="-7.11915608134756E-06"
+        ixz="-3.7290203563534E-10"
+        iyy="0.00740691820330574"
+        iyz="-8.24987037184403E-09"
+        izz="0.00311949104679066" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Yaw_Gimbal.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Yaw_Gimbal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Yaw"
+    type="revolute">
+    <origin
+      xyz="0.061637 0.064652 -0.56922"
+      rpy="-3.1416 0 -1.4816" />
+    <parent
+      link="Z_Arm" />
+    <child
+      link="Yaw_Gimbal" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="Pitch_Gimbal">
+    <inertial>
+      <origin
+        xyz="0.00747912322403316 -0.0328560023311688 -0.11068694827136"
+        rpy="0 0 0" />
+      <mass
+        value="0.909933018814524" />
+      <inertia
+        ixx="0.00175741888742811"
+        ixy="2.4886447972587E-05"
+        ixz="2.46802882684095E-05"
+        iyy="0.00180250428027078"
+        iyz="2.13136897634513E-06"
+        izz="0.000847674169008528" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Pitch_Gimbal.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Robotic Camera Arm Prototype Assem 1.SLDASM/meshes/Pitch_Gimbal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Pitch"
+    type="revolute">
+    <origin
+      xyz="0.020656 -0.058 -0.01025"
+      rpy="0 0 -0.7854" />
+    <parent
+      link="Yaw_Gimbal" />
+    <child
+      link="Pitch_Gimbal" />
+    <axis
+      xyz="0 0 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

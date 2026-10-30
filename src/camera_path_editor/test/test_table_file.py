@@ -14,7 +14,7 @@ TEST_A_ROWS = [
 
 
 def test_round_trip(tmp_path):
-    path = tmp_path / 'shot.json'
+    path = tmp_path / 'table.json'
     save_table(path, TEST_A_ROWS, ['linear'] * 2, ['linear'] * 2)
     rows, camera_segs, focus_segs, notes = load_table(path)
     assert rows == TEST_A_ROWS

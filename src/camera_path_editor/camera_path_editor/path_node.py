@@ -42,6 +42,8 @@ class PathNode(Node):
         super().__init__('camera_path_node')
         self.declare_parameter('points_per_segment', 10)
         self.declare_parameter('frame_id', 'base_link')
+        # The panel's "Show aim arrows" checkbox sets this.
+        self.declare_parameter('show_aim_arrows', True)
 
         self._last_table = None
         self._pub = self.create_publisher(MarkerArray, MARKER_TOPIC, LATCHED_QOS)
@@ -95,10 +97,11 @@ class PathNode(Node):
         # Aim arrows: camera sample k points at focus sample k. Both paths use
         # the same N and u values, so the two dense lists line up one to one.
         arrows = 0
-        for k, (cam, foc) in enumerate(zip(camera_dense, focus_dense)):
-            if math.dist(cam, foc) > MIN_ARROW_LENGTH:
-                array.markers.append(self._arrow('aim_arrows', k, cam, foc))
-                arrows += 1
+        if self.get_parameter('show_aim_arrows').value:
+            for k, (cam, foc) in enumerate(zip(camera_dense, focus_dense)):
+                if math.dist(cam, foc) > MIN_ARROW_LENGTH:
+                    array.markers.append(self._arrow('aim_arrows', k, cam, foc))
+                    arrows += 1
 
         self._pub.publish(array)
         self.get_logger().info(

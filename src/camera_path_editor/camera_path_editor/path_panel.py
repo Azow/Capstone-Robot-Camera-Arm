@@ -1,7 +1,9 @@
 """Table window for typing camera/focus waypoint pairs.
 
 Every change publishes the full PathTable on /camera_path/table, which
-path_node turns into RViz markers.
+path_node turns into RViz markers. If camera_path_ik is running, its result
+comes back on /camera_path/ik_status and the IK column shows where the path
+becomes unreachable and why.
 
 Table layout: even table rows are waypoint rows (one PathRow each), odd table
 rows sit between two waypoints and hold the segment-type dropdowns.
@@ -13,26 +15,35 @@ import signal
 import sys
 
 import rclpy
-from camera_path_interfaces.msg import PathRow, PathTable
+from camera_path_interfaces.msg import PathIkStatus, PathRow, PathTable
 from python_qt_binding.QtCore import Qt, QTimer
+from python_qt_binding.QtGui import QColor
 from python_qt_binding.QtWidgets import (
-    QAbstractItemView, QApplication, QComboBox, QFileDialog, QHBoxLayout, QHeaderView,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView,
     QLabel, QMainWindow, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from camera_path_editor.sampling import SUPPORTED_SEGMENT_TYPES
 from camera_path_editor.table_file import load_table, save_table, TableFileError
 
 TABLE_TOPIC = '/camera_path/table'
+IK_STATUS_TOPIC = '/camera_path/ik_status'
+# path_node's parameter service, for display settings that aren't part of the path.
+PATH_NODE_PARAMS = '/camera_path_node/set_parameters'
 
 WINDOW_TITLE = 'Camera Path Editor'
 FILE_FILTER = 'Path tables (*.json);;All files (*)'
 
-HEADERS = ['#', 'Camera X', 'Camera Y', 'Camera Z', 'Focus X', 'Focus Y', 'Focus Z']
+HEADERS = ['#', 'Camera X', 'Camera Y', 'Camera Z', 'Focus X', 'Focus Y', 'Focus Z', 'IK']
 CAMERA_COLS = (1, 2, 3)
 FOCUS_COLS = (4, 5, 6)
+IK_COL = 7
+NUMBER_COL_WIDTH = 100
+IK_PROBLEM_COLOR = QColor(200, 30, 30)
 
 LATCHED_QOS = QoSProfile(
     depth=1,
@@ -51,6 +62,9 @@ class PathPanel(QMainWindow):
         super().__init__()
         self._node = node
         self._pub = node.create_publisher(PathTable, TABLE_TOPIC, LATCHED_QOS)
+        self._params_client = node.create_client(SetParameters, PATH_NODE_PARAMS)
+        node.create_subscription(PathIkStatus, IK_STATUS_TOPIC, self._on_ik_status, LATCHED_QOS)
+        self._ik_status = None    # last PathIkStatus, re-applied when the table is rebuilt
 
         # The model. The table widget is rebuilt from these after every
         # structural change (add, insert, delete, move).
@@ -60,14 +74,19 @@ class PathPanel(QMainWindow):
         self._file_path = None    # last file saved or loaded
 
         self._update_title()
-        self.resize(880, 480)
+        self.resize(1250, 480)
 
         self._table = QTableWidget(0, len(HEADERS))
         self._table.setHorizontalHeaderLabels(HEADERS)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        for col in CAMERA_COLS + FOCUS_COLS:
+            header.setSectionResizeMode(col, QHeaderView.Interactive)
+            header.resizeSection(col, NUMBER_COL_WIDTH)
+        # The IK column takes the rest of the width; its messages can be long.
+        header.setSectionResizeMode(IK_COL, QHeaderView.Stretch)
         self._table.itemChanged.connect(self._on_item_changed)
 
         buttons = QHBoxLayout()
@@ -82,6 +101,11 @@ class PathPanel(QMainWindow):
             button.clicked.connect(slot)
             buttons.addWidget(button)
         buttons.addStretch()
+        # A display setting only: it isn't saved in the file or sent with the table.
+        self._arrows_box = QCheckBox('Show aim arrows')
+        self._arrows_box.setChecked(True)
+        self._arrows_box.toggled.connect(self._on_arrows_toggled)
+        buttons.addWidget(self._arrows_box)
         for text, slot in (
             ('Save...', self.save_file),
             ('Load...', self.load_file),
@@ -91,11 +115,15 @@ class PathPanel(QMainWindow):
             buttons.addWidget(button)
 
         self._status = QLabel('')
+        self._ik_summary = QLabel('IK: no result yet')
+        status_row = QHBoxLayout()
+        status_row.addWidget(self._status, 1)
+        status_row.addWidget(self._ik_summary)
 
         layout = QVBoxLayout()
         layout.addWidget(self._table)
         layout.addLayout(buttons)
-        layout.addWidget(self._status)
+        layout.addLayout(status_row)
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -253,6 +281,7 @@ class PathPanel(QMainWindow):
                 self._add_segment_row(table_row + 1, i)
 
         self._table.blockSignals(False)
+        self._show_ik_status()
 
     def _add_segment_row(self, table_row, gap):
         blank = QTableWidgetItem('')
@@ -284,7 +313,7 @@ class PathPanel(QMainWindow):
 
     def _on_item_changed(self, item):
         table_row, col = item.row(), item.column()
-        if table_row % 2 or col == 0:
+        if table_row % 2 or col not in CAMERA_COLS + FOCUS_COLS:
             return
         index = table_row // 2
         field = col - 1
@@ -311,6 +340,62 @@ class PathPanel(QMainWindow):
     def _on_segment_changed(self, segs, gap, text):
         segs[gap] = text
         self._publish()
+
+    # ----- IK results --------------------------------------------------------
+
+    def _on_ik_status(self, msg):
+        self._ik_status = msg
+        self._show_ik_status()
+
+    def _show_ik_status(self):
+        """Fill the IK column: the first unreachable point's reason on its row or segment."""
+        self._table.blockSignals(True)
+        for table_row in range(self._table.rowCount()):
+            item = QTableWidgetItem('')
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self._table.setItem(table_row, IK_COL, item)
+        self._table.blockSignals(False)
+
+        msg = self._ik_status
+        if msg is None:
+            return
+        if not msg.reason:
+            self._ik_summary.setText(f'IK: all {msg.points_total} points reachable')
+            return
+        self._ik_summary.setText(
+            f'IK: point {msg.points_reached + 1} of {msg.points_total} is unreachable')
+        # The result can be for a table that has since changed shape; skip it then.
+        table_row = 2 * msg.row if msg.row >= 0 else 2 * msg.segment + 1
+        if not 0 <= table_row < self._table.rowCount():
+            return
+        where = (f'Row {msg.row + 1}' if msg.row >= 0
+                 else f'Between rows {msg.segment + 1} and {msg.segment + 2}')
+        self._table.blockSignals(True)
+        item = self._table.item(table_row, IK_COL)
+        item.setText(f'Unreachable: {msg.reason}')
+        item.setForeground(IK_PROBLEM_COLOR)
+        item.setToolTip(f'{where}, path point {msg.points_reached + 1} of '
+                        f'{msg.points_total}:\n' + msg.reason.replace('; ', '\n'))
+        self._table.blockSignals(False)
+
+    # ----- display settings --------------------------------------------------
+
+    def _on_arrows_toggled(self, checked):
+        if not self._params_client.service_is_ready():
+            self._show_status('path_node is not running, so the arrows setting was not sent.')
+            return
+        value = ParameterValue(type=ParameterType.PARAMETER_BOOL, bool_value=checked)
+        request = SetParameters.Request(
+            parameters=[Parameter(name='show_aim_arrows', value=value)])
+        future = self._params_client.call_async(request)
+        future.add_done_callback(lambda f: self._on_arrows_set(f, checked))
+
+    def _on_arrows_set(self, future, checked):
+        response = future.result()
+        if response is None or not all(r.successful for r in response.results):
+            self._show_status('path_node did not accept the arrows setting.')
+            return
+        self._show_status('Aim arrows shown.' if checked else 'Aim arrows hidden.')
 
     # ----- publishing --------------------------------------------------------
 

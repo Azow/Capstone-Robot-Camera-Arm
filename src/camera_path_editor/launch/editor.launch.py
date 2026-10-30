@@ -7,6 +7,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -25,7 +26,8 @@ def generate_launch_description():
             executable='path_node',
             name='camera_path_node',
             output='screen',
-            parameters=[{'points_per_segment': points_per_segment}],
+            parameters=[{'points_per_segment': ParameterValue(
+                points_per_segment, value_type=int)}],
         ),
         Node(
             package='camera_path_editor',
