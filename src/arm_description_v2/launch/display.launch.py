@@ -9,6 +9,8 @@ def generate_launch_description():
 
     with open(urdf_path) as f:
         robot_description = f.read()
+    with open(os.path.join(pkg_share, 'urdf', 'scene.urdf')) as f:
+        scene_description = f.read()
 
     return LaunchDescription([
         # robot_state_publisher
@@ -17,6 +19,14 @@ def generate_launch_description():
           executable='robot_state_publisher',
           parameters=[{'robot_description': robot_description}],
       ),   
+        # The pillar (scene.urdf), published separately from the arm
+        Node(
+          package='robot_state_publisher',
+          executable='robot_state_publisher',
+          name='scene_state_publisher',
+          namespace='scene',
+          parameters=[{'robot_description': scene_description}],
+      ),
         # Publish joint states (with sliders) so robot_state_publisher has something to work with
         Node(
           package='joint_state_publisher_gui',

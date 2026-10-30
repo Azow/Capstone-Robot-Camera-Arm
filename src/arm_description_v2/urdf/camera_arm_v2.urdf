@@ -335,26 +335,16 @@
       velocity="1" />
   </joint>
   <!-- Camera optical frame (z forward, x right, y down). Lens position from SolidWorks:
-       (-1, 3.356, 8.320) in from the assembly origin = (-0.0254 0.0852424 0.211328) m in base_link,
-       centre of the lens ring on the front (+Y) face of the pitch gimbal, looking along +Y
-       at the zero pose. (SolidWorks Measure shows unsigned deltas; x sign from the mesh.) -->
+       (-1, 3.356, 8.320) in from the assembly origin, centre of the lens ring on the front (+Y)
+       face of the pitch gimbal, looking along +Y at the zero pose. (SolidWorks Measure shows
+       unsigned deltas; x sign from the mesh.) The frame sits 2.826 in behind the lens, inside
+       the camera, at (-1, 0.53, 8.320) in = (-0.0254 0.013462 0.211328) m in base_link:
+       0.5 in in front of the Pitch pivot (y 0.03 in). -->
   <link name="camera_optical_frame"/>
   <joint name="camera_optical_joint" type="fixed">
     <parent link="Pitch_Gimbal"/>
     <child link="camera_optical_frame"/>
-    <origin xyz="-0.06147775915604879 -0.05799207543869661 -0.11446999999999949" rpy="-1.5465200834087727 1.5707963267948966 2.380470733578473"/>
+    <origin xyz="-0.010721351559766147 -0.00723566784241355 -0.11446999999999949" rpy="-1.5465200834087727 1.5707963267948966 2.380470733578473"/>
   </joint>
 
-  <!-- Pillar in front of the camera (at the zero pose the camera looks along +y of base_link) -->
-  <link name="pillar">
-    <visual>
-      <geometry><box size="0.05 0.05 0.4"/></geometry>
-      <material name="pillar_mat"><color rgba="0.9 0.1 0.1 1"/></material>
-    </visual>
-  </link>
-  <joint name="pillar_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="pillar"/>
-    <origin xyz="0 0.6 0.2" rpy="0 0 0"/>
-  </joint>
 </robot>

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!-- Things around the arm, kept out of camera_arm_v2.urdf so RViz can show or hide
+     them separately (the Camera View hides the arm but still shows these).
+     Rooted at base_link, the same frame the arm's robot_state_publisher publishes. -->
+<robot name="scene">
+  <link name="base_link"/>
+
+  <!-- Pillar in front of the camera (at the zero pose the camera looks along +y of base_link) -->
+  <link name="pillar">
+    <visual>
+      <geometry><box size="0.05 0.05 0.4"/></geometry>
+      <material name="pillar_mat"><color rgba="0.9 0.1 0.1 1"/></material>
+    </visual>
+  </link>
+  <joint name="pillar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="pillar"/>
+    <origin xyz="0 0.6 0.2" rpy="0 0 0"/>
+  </joint>
+</robot>

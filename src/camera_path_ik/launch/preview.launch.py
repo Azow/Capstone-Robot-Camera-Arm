@@ -16,10 +16,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    urdf_path = os.path.join(get_package_share_directory('arm_description_v2'),
-                             'urdf', 'camera_arm_v2.urdf')
+    urdf_dir = os.path.join(get_package_share_directory('arm_description_v2'), 'urdf')
+    urdf_path = os.path.join(urdf_dir, 'camera_arm_v2.urdf')
     with open(urdf_path) as f:
         robot_description = f.read()
+    with open(os.path.join(urdf_dir, 'scene.urdf')) as f:
+        scene_description = f.read()
     rviz_config = os.path.join(get_package_share_directory('camera_path_ik'),
                                'rviz', 'preview.rviz')
 
@@ -72,6 +74,15 @@ def generate_launch_description():
             package='robot_state_publisher',
             executable='robot_state_publisher',
             parameters=[{'robot_description': robot_description}],
+        ),
+        # The pillar, on its own so the Camera View can hide the arm but still show it.
+        # Its description goes to /scene/robot_description; TF still goes to /tf_static.
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            name='scene_state_publisher',
+            namespace='scene',
+            parameters=[{'robot_description': scene_description}],
         ),
         # Blank image + camera info, so RViz can draw the scene from the camera.
         Node(package='arm_description_v2', executable='fake_camera'),
