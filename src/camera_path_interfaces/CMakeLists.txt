@@ -9,6 +9,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PathRow.msg"
   "msg/PathTable.msg"
   "msg/PathIkStatus.msg"
+  "msg/PlaybackState.msg"
   DEPENDENCIES geometry_msgs
 )
 

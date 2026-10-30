@@ -25,6 +25,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'fake_camera = arm_description_v2.fake_camera:main',
         ],
     },
 )

@@ -20,7 +20,7 @@ x forward, y left, z up.
 
 | Package | What it is |
 |---|---|
-| `camera_path_interfaces` | Message definitions only (`PathRow`, `PathTable`, and `PathIkStatus` for the IK column). No code. |
+| `camera_path_interfaces` | Message definitions only (`PathRow`, `PathTable`, `PathIkStatus` for the IK column, and `PlaybackState` for the play controls). No code. |
 | `camera_path_editor` | The panel, the path node, the launch file, and the RViz config. |
 
 ```
@@ -44,8 +44,8 @@ ros2 launch camera_path_editor editor.launch.py
 ```
 
 This opens two windows: the **Camera Path Editor** table and **RViz**. It does
-not load the arm model. `arm_description` and its launch files are separate and
-unchanged.
+not load the arm model. The arm (`arm_description_v2`) and its launch files are
+separate and unchanged.
 
 Optional: change how many points are generated per segment (default 10).
 This also sets how many aim arrows are drawn per segment:
@@ -73,6 +73,13 @@ ros2 launch camera_path_editor editor.launch.py points_per_segment:=5
 - **Show aim arrows** turns the green arrows on and off. It is a display
   setting only: it is not saved in the file. It sets path_node's
   `show_aim_arrows` parameter, so path_node must be running.
+- **Show keyframes** does the same for the waypoint spheres and their row
+  numbers and the path lines between them (path_node's `show_keyframes`).
+- The bottom row holds the play controls. They are greyed out unless
+  `camera_path_ik` is running (`preview.launch.py`): **Play/Pause**, a
+  **Speed** dropdown (0.25x to 4x of `camera_path_ik`'s `playback_rate`), and
+  a slider to scrub along the path, with the current point next to it.
+  Dragging the slider pauses playback. See `camera_path_ik`'s README.
 - **Save...** writes the table (rows and segment types) to a `.json` file.
   **Load...** replaces the current table with one from a file and redraws.
   The window title shows the file last saved or loaded. Loading does not ask
@@ -130,6 +137,7 @@ cd ~/capstone_ws/src/camera_path_editor && python3 -m pytest test
 | `points_per_segment` | 10 | Points per segment (N), and aim arrows per segment. Can be changed while running; the picture redraws. |
 | `frame_id` | `base_link` | Frame all markers are drawn in. |
 | `show_aim_arrows` | `true` | Draw the green aim arrows. The panel's checkbox sets it; can be changed while running. |
+| `show_keyframes` | `true` | Draw the waypoint spheres, row numbers and path lines. The panel's checkbox sets it; can be changed while running. |
 
 ## How the dense points are made
 

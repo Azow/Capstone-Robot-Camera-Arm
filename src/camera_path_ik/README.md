@@ -33,6 +33,8 @@ The math files have no ROS imports, so the tests run with plain pytest.
  path_panel --PathTable--> ik_node --JointState--> robot_state_publisher --TF--> RViz (arm moves)
                               |
                               +--PathIkStatus on /camera_path/ik_status--> path_panel (IK column)
+ path_panel --SetBool on /camera_path/set_playing, UInt32 on /camera_path/seek, `speed` parameter--> ik_node
+ ik_node --PlaybackState on /camera_path/playback--> path_panel (play controls)
 ```
 
 ## Build and run
@@ -45,8 +47,12 @@ source install/setup.bash
 ros2 launch camera_path_ik preview.launch.py
 ```
 
-This opens the editor table and RViz with the arm. Load or type a path and the
-arm plays along it on a loop, pausing 1 s at the end. `examples/demo_path.json`
+This opens the editor table and RViz with the arm. Load or type a path, then press
+**Play** at the bottom of the editor: the arm plays along it once and stops at
+the end (Play again starts over). **Pause** holds the arm where it is. The
+**Speed** dropdown next to it changes the speed without restarting, and the
+slider scrubs to any point (dragging it pauses). Any edit to the path re-solves
+it and goes back to the first point, paused. `examples/demo_path.json`
 is a path the current arm can fully reach (a rising sweep in front of the red
 pillar, watching it); load it with the editor's **Load...** button. The **Camera View** panel
 shows the scene from the arm's camera: if the IK is right, the red focus sphere
@@ -55,20 +61,21 @@ stays in the middle of it.
 Optional launch arguments:
 
 - `points_per_segment:=5`: same meaning as in the editor; both use the same value.
-- `playback_rate:=40.0`: path points played per second.
+- `playback_rate:=20.0`: path points played per second at 1x speed (default 10).
 - `free_spin:=false`: use the URDF's Theta and Yaw limits. **Temporarily on
   (`true`) by default**, so Theta and Yaw can spin freely, any number of turns.
   The other joints always keep their limits.
 
-The arm is small. `describe_arm` prints what the solver measured:
+The arm is `arm_description_v2`'s `camera_arm_v2.urdf`. `describe_arm` prints
+what the solver measured:
 
 ```bash
-ros2 run camera_path_ik describe_arm ~/capstone_ws/src/arm_description/urdf/camera_arm.urdf
+ros2 run camera_path_ik describe_arm ~/capstone_ws/src/arm_description_v2/urdf/camera_arm_v2.urdf
 ```
 
-For the current URDF: the wrist (Yaw axis) reaches 0.077 to 0.264 m from the
-base axis, the camera height ranges from -0.018 to 0.172 m, and the camera sits
-0.04 m off the Yaw axis.
+For the current URDF: the wrist (Yaw axis) reaches 0.025 to 0.415 m from the
+base axis, the camera height ranges from -0.089 to 0.661 m, and the camera sits
+0.085 m off the Yaw axis.
 
 ## Unreachable points
 
@@ -81,27 +88,27 @@ unreachable"), or "IK: all 31 points reachable". RViz shows only the arm and
 the paths, no errors. The terminal logs the same reason, for example:
 
 ```
-Point 1 of 21 (row 1) is unreachable: camera too high (Z would be 0.0280 m, limits are
-[-0.19, 0]); camera out of reach (wrist would be 0.4490 m from the Theta axis, reach is
-0.0766 to 0.2643 m). Nothing to play; showing the reference pose.
+Point 1 of 21 (row 1) is unreachable: camera out of reach (wrist would be 0.5325 m from
+the Theta axis, reach is 0.0251 to 0.4151 m). Nothing to play; showing the reference pose.
 ```
 
 Possible reasons: too high or too low, out of reach, too close to the base
-axis (the R slide passes 4.8 cm to the side of it on the current URDF, so
-nothing closer can be reached), Pitch outside its limits, or Theta/Yaw outside
+axis (the R slide passes through it on the current URDF, but R=0 stops the
+wrist 2.5 cm out, so nothing closer can be reached), Pitch outside its limits, or Theta/Yaw outside
 their limits.
 
 ## Node parameters (`ik_node`)
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `urdf_path` | `arm_description`'s `camera_arm.urdf` | Arm to measure. |
+| `urdf_path` | `arm_description_v2`'s `camera_arm_v2.urdf` | Arm to measure. |
 | `points_per_segment` | 10 | Must match the editor's `path_node` so both use the same points. |
-| `playback_rate` | 20.0 | Path points played per second. |
-| `end_pause` | 1.0 | Seconds to hold the last pose before starting over. |
+| `playback_rate` | 10.0 | Path points played per second at 1x. |
+| `speed` | 1.0 | Multiplier on `playback_rate`. The editor's Speed dropdown sets it. |
 | `free_spin` | false | Ignore the Theta and Yaw limits. Read once at startup. (The launch file turns it on for now.) |
 
-All but `urdf_path` and `free_spin` can be changed while running; the path is re-solved.
+All but `urdf_path` and `free_spin` can be changed while running. `points_per_segment` re-solves
+the path (back to the first point, paused); `playback_rate` and `speed` only change the timing.
 
 ## Testing
 
@@ -118,8 +125,8 @@ cd ~/capstone_ws/src/camera_path_ik && python3 -m pytest test
   never reaches a point the closed form rejects.
 
 The test arms are in `test/arms.py`. One of them has the R slide passing
-through the base axis, like the real arm will, so the Theta/Yaw singularity
-is tested even though the current URDF can't reach it.
+through the base axis and reaching it, so the Theta/Yaw singularity is tested
+even though the current URDF stops 2.5 cm short of it.
 
 ## How the IK works
 
@@ -204,9 +211,11 @@ Inputs: camera target `P*`, focus `F*`, aim `d = (F* - P*) / |F* - P*|`.
 If the camera target equals its focus point there is no aim: Pitch and heading
 are kept from the previous point and only the position is solved.
 
-The closed form is exact apart from the URDF's rounding (1.5708 for pi/2 makes
-the Yaw axis ~4e-6 rad off parallel). On the current URDF, 2000 random round
-trips land within 1e-15 m and 3e-6 deg, at about 1 ms per point.
+The closed form is exact apart from the URDF's rounding. CAD exports that write
+1.5708 for pi/2 leave the Yaw axis ~1e-5 rad off parallel, enough to fail the
+tests' 1e-5 rad aim check, so `camera_arm_v2.urdf` uses full-precision angles.
+On the current URDF, 2000 random round trips land within 1e-14 m and 2e-6 deg,
+at about 0.3 ms per point.
 
 ### Singularities
 
@@ -215,14 +224,16 @@ trips land within 1e-15 m and 3e-6 deg, at about 1 ms per point.
   the axis, Theta has to turn fast: about `sideways camera speed / distance
   from axis` rad/s. That will matter once timing is added.
 - **Looking straight up or down:** heading has no meaning. Yaw is held.
-- The current URDF can't reach the first one (the slide misses the axis by
-  4.8 cm), and its Pitch limits (-90 deg, +57 deg) stop just short of straight
-  down. The test arms cover both.
+- The current URDF can't quite reach the first one (the slide passes through
+  the axis, but R=0 stops the wrist 2.5 cm out, so Theta turns fast near it), and
+  its Pitch limits (+-89.95 deg) stop just short of straight up and down. The
+  test arms cover both.
 
 ## Known limits / next steps
 
 - No timing: `time_from_start`, velocity and acceleration limits. The URDF has
-  `velocity="0"` on every joint; real limits are needed before timing.
+  placeholder `effort="10"` / `velocity="1"` on every joint, and the Z limits are
+  placeholders too; real limits are needed before timing.
 - Joint limits are the only constraint. No collision checking (e.g. the pillar).
 - Playback publishes `/joint_states` directly. The next step toward hardware is
   sending a `JointTrajectory` to ros2_control's `joint_trajectory_controller`

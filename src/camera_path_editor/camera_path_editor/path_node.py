@@ -42,8 +42,9 @@ class PathNode(Node):
         super().__init__('camera_path_node')
         self.declare_parameter('points_per_segment', 10)
         self.declare_parameter('frame_id', 'base_link')
-        # The panel's "Show aim arrows" checkbox sets this.
+        # The panel's "Show aim arrows" and "Show keyframes" checkboxes set these.
         self.declare_parameter('show_aim_arrows', True)
+        self.declare_parameter('show_keyframes', True)   # waypoint spheres, numbers and path lines
 
         self._last_table = None
         self._pub = self.create_publisher(MarkerArray, MARKER_TOPIC, LATCHED_QOS)
@@ -83,16 +84,17 @@ class PathNode(Node):
         clear.action = Marker.DELETEALL
         array.markers.append(clear)
 
-        for i, (cam, foc) in enumerate(zip(cameras, focuses)):
-            array.markers.append(self._sphere('camera_waypoints', i, cam, BLUE))
-            array.markers.append(self._label('camera_labels', i, cam, BLUE))
-            array.markers.append(self._sphere('focus_waypoints', i, foc, RED))
-            array.markers.append(self._label('focus_labels', i, foc, RED))
+        if self.get_parameter('show_keyframes').value:
+            for i, (cam, foc) in enumerate(zip(cameras, focuses)):
+                array.markers.append(self._sphere('camera_waypoints', i, cam, BLUE))
+                array.markers.append(self._label('camera_labels', i, cam, BLUE))
+                array.markers.append(self._sphere('focus_waypoints', i, foc, RED))
+                array.markers.append(self._label('focus_labels', i, foc, RED))
 
-        # A line needs at least 2 points, so skip the paths for 0 or 1 rows.
-        if len(table.rows) >= 2:
-            array.markers.append(self._line('camera_path', camera_dense, BLUE))
-            array.markers.append(self._line('focus_path', focus_dense, RED))
+            # A line needs at least 2 points, so skip the paths for 0 or 1 rows.
+            if len(table.rows) >= 2:
+                array.markers.append(self._line('camera_path', camera_dense, BLUE))
+                array.markers.append(self._line('focus_path', focus_dense, RED))
 
         # Aim arrows: camera sample k points at focus sample k. Both paths use
         # the same N and u values, so the two dense lists line up one to one.

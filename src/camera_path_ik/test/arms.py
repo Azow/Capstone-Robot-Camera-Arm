@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-REAL_URDF = Path(__file__).parents[2] / 'arm_description' / 'urdf' / 'camera_arm.urdf'
+REAL_URDF = Path(__file__).parents[2] / 'arm_description_v2' / 'urdf' / 'camera_arm_v2.urdf'
 
 # A clean test arm with round numbers, so measured values can be checked by hand:
 # Theta axis at the origin, R slide 0.02 m to the side of it, wrist 0.05 m out

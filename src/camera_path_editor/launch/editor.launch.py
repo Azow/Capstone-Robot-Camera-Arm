@@ -35,6 +35,14 @@ def generate_launch_description():
             name='camera_path_panel',
             output='screen',
         ),
+        # No arm here, so nothing else publishes TF. RViz's fixed frame is
+        # base_link, which only exists once something puts it in the TF tree.
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='base_link_tf',
+            arguments=['--frame-id', 'world', '--child-frame-id', 'base_link'],
+        ),
         Node(
             package='rviz2',
             executable='rviz2',

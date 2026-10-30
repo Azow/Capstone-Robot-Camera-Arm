@@ -23,7 +23,7 @@ def test_measured_model_matches_fk_on_test_arm():
     _assert_matches_fk(TEST_ARM)
 
 
-@pytest.mark.skipif(not REAL_URDF.exists(), reason='arm_description URDF not found')
+@pytest.mark.skipif(not REAL_URDF.exists(), reason='arm_description_v2 URDF not found')
 def test_measured_model_matches_fk_on_real_urdf():
     _assert_matches_fk(REAL_URDF.read_text())
 

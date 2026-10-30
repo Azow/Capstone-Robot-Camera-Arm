@@ -3,7 +3,12 @@
 Listens to the same PathTable the editor publishes, samples it exactly like
 path_node does (same points_per_segment gives the same points), solves each
 point in order, and publishes JointState so robot_state_publisher moves the
-arm in RViz. Playback loops from the first point to the last reachable one.
+arm in RViz. Playback starts paused; the editor's Play/Pause button (or the
+/camera_path/set_playing service) plays from the first point to the last
+reachable one and stops there. Play at the end starts over. The editor's
+slider jumps to a point through /camera_path/seek, and its speed dropdown sets
+the `speed` parameter. A PlaybackState on /camera_path/playback keeps the
+editor's controls in step.
 
 If a point can't be reached, solving stops there: the arm plays up to the
 point before it, and a PathIkStatus says which point and why. The editor
@@ -15,11 +20,13 @@ import os
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from camera_path_editor.sampling import sample_path
-from camera_path_interfaces.msg import PathIkStatus, PathTable
+from camera_path_interfaces.msg import PathIkStatus, PathTable, PlaybackState
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
+from std_msgs.msg import UInt32
+from std_srvs.srv import SetBool
 
 from camera_path_ik.arm_model import ArmModel, THETA, YAW
 from camera_path_ik.ik import IkSolver
@@ -27,6 +34,9 @@ from camera_path_ik.ik import IkSolver
 TABLE_TOPIC = '/camera_path/table'
 STATUS_TOPIC = '/camera_path/ik_status'
 JOINT_TOPIC = '/joint_states'
+PLAYBACK_TOPIC = '/camera_path/playback'
+SEEK_TOPIC = '/camera_path/seek'
+SET_PLAYING_SERVICE = '/camera_path/set_playing'
 
 LATCHED_QOS = QoSProfile(
     depth=1,
@@ -36,8 +46,8 @@ LATCHED_QOS = QoSProfile(
 
 
 def _default_urdf_path():
-    return os.path.join(get_package_share_directory('arm_description'),
-                        'urdf', 'camera_arm.urdf')
+    return os.path.join(get_package_share_directory('arm_description_v2'),
+                        'urdf', 'camera_arm_v2.urdf')
 
 
 class IkNode(Node):
@@ -46,8 +56,8 @@ class IkNode(Node):
         super().__init__('camera_path_ik')
         self.declare_parameter('urdf_path', '')
         self.declare_parameter('points_per_segment', 10)
-        self.declare_parameter('playback_rate', 20.0)    # path points per second
-        self.declare_parameter('end_pause', 1.0)         # seconds to hold at the end
+        self.declare_parameter('playback_rate', 10.0)    # path points per second at 1x
+        self.declare_parameter('speed', 1.0)             # multiplier; the editor's dropdown sets it
         # Temporary: ignore the Theta and Yaw limits so they can spin freely.
         # Read once at startup.
         self.declare_parameter('free_spin', False)
@@ -65,23 +75,32 @@ class IkNode(Node):
         self._last_table = None
         self._poses = [model.q_ref]   # joint positions to play, in order
         self._index = 0
-        self._pause_ticks = 0
+        self._count = 0               # reachable points; 0 when only showing the reference pose
+        self._playing = False
+        self._last_playback = None    # last PlaybackState sent, as (playing, index, count)
 
         self._joint_pub = self.create_publisher(JointState, JOINT_TOPIC, 10)
         self._status_pub = self.create_publisher(PathIkStatus, STATUS_TOPIC, LATCHED_QOS)
+        self._playback_pub = self.create_publisher(PlaybackState, PLAYBACK_TOPIC, LATCHED_QOS)
+        self.create_service(SetBool, SET_PLAYING_SERVICE, self._on_set_playing)
+        self.create_subscription(UInt32, SEEK_TOPIC, self._on_seek, 10)
+        self._publish_playback()
         self.create_subscription(PathTable, TABLE_TOPIC, self._on_table, LATCHED_QOS)
         self._timer = None
         self._restart_timer()
-        # Re-solve and re-time with the new settings when a parameter changes at runtime.
+        # Pick up parameter changes at runtime: re-time and/or re-solve.
         self.add_post_set_parameters_callback(self._on_params_changed)
 
         self.get_logger().info(f'Waiting for tables on {TABLE_TOPIC}')
 
     # ----- solving -----------------------------------------------------------
 
-    def _on_params_changed(self, _params):
-        self._restart_timer()
-        if self._last_table is not None:
+    def _on_params_changed(self, params):
+        names = {p.name for p in params}
+        # Speed changes keep the current point and play state; only N re-solves.
+        if names & {'playback_rate', 'speed'}:
+            self._restart_timer()
+        if 'points_per_segment' in names and self._last_table is not None:
             self._solve(self._last_table)
 
     def _on_table(self, msg):
@@ -106,8 +125,11 @@ class IkNode(Node):
 
         # Nothing reachable (empty table, or the first point fails): show the reference pose.
         self._poses = reached or [self._solver.model.q_ref]
+        self._count = len(reached)
+        # A new path starts paused at its first point.
         self._index = 0
-        self._pause_ticks = 0
+        self._playing = False
+        self._publish_pose()
 
         total = len(camera_dense)
         held = sum(1 for r in results if r.held)
@@ -137,34 +159,59 @@ class IkNode(Node):
     # ----- playback ----------------------------------------------------------
 
     def _restart_timer(self):
-        rate = self.get_parameter('playback_rate').value
+        rate = self.get_parameter('playback_rate').value * self.get_parameter('speed').value
         if rate <= 0:
-            self.get_logger().warn(f'playback_rate={rate} is invalid, using 1')
+            self.get_logger().warn(f'playback_rate x speed = {rate} is invalid, using 1')
             rate = 1.0
         if self._timer is not None:
             self.destroy_timer(self._timer)
         self._timer = self.create_timer(1.0 / rate, self._tick)
-        self._rate = rate
 
     def _tick(self):
         # Ctrl+C / launch shutdown can stop ROS just before a tick; publishing then fails.
         if not self.context.ok():
             return
-        q = self._poses[self._index]
+        if self._playing:
+            if self._index < len(self._poses) - 1:
+                self._index += 1
+            else:
+                # At the end: stop and hold the last pose.
+                self._playing = False
+        # Publish every tick, even when paused, so the arm stays drawn in RViz.
+        self._publish_pose()
+
+    def _on_set_playing(self, request, response):
+        # Play from the end starts over from the first point.
+        if request.data and self._index >= len(self._poses) - 1:
+            self._index = 0
+        self._playing = request.data
+        self._publish_pose()
+        response.success = True
+        response.message = 'playing' if request.data else 'paused'
+        return response
+
+    def _on_seek(self, msg):
+        # Scrubbing pauses, and shows the point right away instead of on the next tick.
+        self._playing = False
+        self._index = min(msg.data, len(self._poses) - 1)
+        self._publish_pose()
+
+    def _publish_pose(self):
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = list(self._solver.model.names)
-        msg.position = [float(v) for v in q]
+        msg.position = [float(v) for v in self._poses[self._index]]
         self._joint_pub.publish(msg)
+        self._publish_playback()
 
-        if self._index < len(self._poses) - 1:
-            self._index += 1
+    def _publish_playback(self):
+        # Only on change: paused ticks would otherwise resend the same state.
+        state = (self._playing, self._index, self._count)
+        if state == self._last_playback:
             return
-        # At the end: hold, then start over.
-        self._pause_ticks += 1
-        if self._pause_ticks >= self.get_parameter('end_pause').value * self._rate:
-            self._index = 0
-            self._pause_ticks = 0
+        self._last_playback = state
+        self._playback_pub.publish(
+            PlaybackState(playing=self._playing, index=self._index, count=self._count))
 
     # ----- status for the editor panel --------------------------------------
 

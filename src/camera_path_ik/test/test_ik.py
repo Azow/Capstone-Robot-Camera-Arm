@@ -11,7 +11,7 @@ from camera_path_ik.kinematics import Chain
 from arms import FULL_PITCH_ARM, REAL_URDF, TEST_ARM, THROUGH_AXIS_ARM
 
 needs_real_urdf = pytest.mark.skipif(not REAL_URDF.exists(),
-                                     reason='arm_description URDF not found')
+                                     reason='arm_description_v2 URDF not found')
 
 
 def _solver(urdf_text):

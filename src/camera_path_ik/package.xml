@@ -10,10 +10,12 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>camera_path_interfaces</exec_depend>
   <exec_depend>camera_path_editor</exec_depend>
-  <exec_depend>arm_description</exec_depend>
+  <exec_depend>arm_description_v2</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>launch</exec_depend>

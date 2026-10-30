@@ -89,7 +89,7 @@
     type="revolute">
     <origin
       xyz="0 0 0"
-      rpy="-1.5708 0 -1.5708" />
+      rpy="-1.5707963267949 0 -1.5707963267949" />
     <parent
       link="base_link" />
     <child
@@ -147,7 +147,7 @@
     type="prismatic">
     <origin
       xyz="0.10025 -0.30653 0.3248"
-      rpy="1.5708 -1.5708 0" />
+      rpy="1.5707963267949 -1.5707963267949 0" />
     <parent
       link="Rotating_Base" />
     <child
@@ -205,7 +205,7 @@
     type="prismatic">
     <origin
       xyz="0.0943 0.06275 0.027475"
-      rpy="-1.5708 1.4816 -1.5708" />
+      rpy="-1.5707963267949 1.48162448210916 -1.5707963267949" />
     <parent
       link="Carriage" />
     <child
@@ -263,7 +263,7 @@
     type="revolute">
     <origin
       xyz="0.063543 0.0433336 -0.444201"
-      rpy="-3.1416 0 -1.4816" />
+      rpy="-3.14159265358979 0 -1.48162448210916" />
     <parent
       link="Z_Arm" />
     <child
@@ -280,7 +280,7 @@
     name="Pitch_Gimbal">
     <inertial>
       <origin
-        xyz="0.00464884 -0.0302346 -0.110687"
+        xyz="0.00749578 -0.0328524 -0.110687"
         rpy="0 0 0" />
       <mass
         value="0.909933018814524" />
@@ -294,7 +294,7 @@
     </inertial>
     <visual>
       <origin
-        xyz="-0.00283028 0.00262143 4.37435e-08"
+        xyz="1.66585e-05 3.62442e-06 -1.04762e-10"
         rpy="0 0 0" />
       <geometry>
         <mesh
@@ -308,7 +308,7 @@
     </visual>
     <collision>
       <origin
-        xyz="-0.00283028 0.00262143 4.37435e-08"
+        xyz="1.66585e-05 3.62442e-06 -1.04762e-10"
         rpy="0 0 0" />
       <geometry>
         <mesh
@@ -320,8 +320,8 @@
     name="Pitch"
     type="revolute">
     <origin
-      xyz="-0.000599768 -0.0618564 0.114769"
-      rpy="0 0 -0.7854" />
+      xyz="-0.000761782 -0.0579922 0.114769"
+      rpy="0 0 -0.785398163397449" />
     <parent
       link="Yaw_Gimbal" />
     <child
@@ -333,5 +333,28 @@
       upper="1.57"
       effort="10"
       velocity="1" />
+  </joint>
+  <!-- Camera optical frame (z forward, x right, y down). Lens position from SolidWorks:
+       (-1, 3.356, 8.320) in from the assembly origin = (-0.0254 0.0852424 0.211328) m in base_link,
+       centre of the lens ring on the front (+Y) face of the pitch gimbal, looking along +Y
+       at the zero pose. (SolidWorks Measure shows unsigned deltas; x sign from the mesh.) -->
+  <link name="camera_optical_frame"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="Pitch_Gimbal"/>
+    <child link="camera_optical_frame"/>
+    <origin xyz="-0.06147775915604879 -0.05799207543869661 -0.11446999999999949" rpy="-1.5465200834087727 1.5707963267948966 2.380470733578473"/>
+  </joint>
+
+  <!-- Pillar in front of the camera (at the zero pose the camera looks along +y of base_link) -->
+  <link name="pillar">
+    <visual>
+      <geometry><box size="0.05 0.05 0.4"/></geometry>
+      <material name="pillar_mat"><color rgba="0.9 0.1 0.1 1"/></material>
+    </visual>
+  </link>
+  <joint name="pillar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="pillar"/>
+    <origin xyz="0 0.6 0.2" rpy="0 0 0"/>
   </joint>
 </robot>

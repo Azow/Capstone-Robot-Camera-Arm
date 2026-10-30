@@ -16,8 +16,8 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    urdf_path = os.path.join(get_package_share_directory('arm_description'),
-                             'urdf', 'camera_arm.urdf')
+    urdf_path = os.path.join(get_package_share_directory('arm_description_v2'),
+                             'urdf', 'camera_arm_v2.urdf')
     with open(urdf_path) as f:
         robot_description = f.read()
     rviz_config = os.path.join(get_package_share_directory('camera_path_ik'),
@@ -33,7 +33,7 @@ def generate_launch_description():
             'points_per_segment', default_value='10',
             description='Dense points per segment (editor drawing and IK use the same)'),
         DeclareLaunchArgument(
-            'playback_rate', default_value='20.0',
+            'playback_rate', default_value='10.0',
             description='Path points played per second'),
         # Temporary: on by default for now. Use free_spin:=false for the URDF limits.
         DeclareLaunchArgument(
@@ -74,7 +74,7 @@ def generate_launch_description():
             parameters=[{'robot_description': robot_description}],
         ),
         # Blank image + camera info, so RViz can draw the scene from the camera.
-        Node(package='arm_description', executable='fake_camera'),
+        Node(package='arm_description_v2', executable='fake_camera'),
 
         Node(
             package='rviz2',
