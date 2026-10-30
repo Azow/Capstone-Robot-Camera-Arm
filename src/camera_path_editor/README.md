@@ -47,11 +47,12 @@ This opens two windows: the **Camera Path Editor** table and **RViz**. It does
 not load the arm model. The arm (`arm_description_v2`) and its launch files are
 separate and unchanged.
 
-Optional: change how many points are generated per segment (default 10).
-This also sets how many aim arrows are drawn per segment:
+Optional: change how many points are generated per segment (default 20), and
+how often an aim arrow is drawn along them (default every 2nd point, so 10
+arrows per segment):
 
 ```bash
-ros2 launch camera_path_editor editor.launch.py points_per_segment:=5
+ros2 launch camera_path_editor editor.launch.py points_per_segment:=5 arrow_every:=1
 ```
 
 ## Using the panel
@@ -134,7 +135,8 @@ cd ~/capstone_ws/src/camera_path_editor && python3 -m pytest test
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `points_per_segment` | 10 | Points per segment (N), and aim arrows per segment. Can be changed while running; the picture redraws. |
+| `points_per_segment` | 20 | Points per segment (N). Can be changed while running; the picture redraws. |
+| `arrow_every` | 2 | Draw an aim arrow on every Nth point of each segment (counted from each waypoint, and always on the last point). 1 = an arrow on every point. Can be changed while running. |
 | `frame_id` | `base_link` | Frame all markers are drawn in. |
 | `show_aim_arrows` | `true` | Draw the green aim arrows. The panel's checkbox sets it; can be changed while running. |
 | `show_keyframes` | `true` | Draw the waypoint spheres, row numbers and path lines. The panel's checkbox sets it; can be changed while running. |

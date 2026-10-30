@@ -60,8 +60,10 @@ stays in the middle of it.
 
 Optional launch arguments:
 
-- `points_per_segment:=5`: same meaning as in the editor; both use the same value.
-- `playback_rate:=20.0`: path points played per second at 1x speed (default 10).
+- `points_per_segment:=10`: same meaning as in the editor; both use the same value (default 20).
+- `arrow_every:=1`: how often the editor draws an aim arrow (default every 2nd point).
+- `playback_rate:=10.0`: path points played per second at 1x speed (default 20, so one
+  segment per second). Change it together with `points_per_segment` to keep the same speed.
 - `free_spin:=false`: use the URDF's Theta and Yaw limits. **Temporarily on
   (`true`) by default**, so Theta and Yaw can spin freely, any number of turns.
   The other joints always keep their limits.
@@ -102,8 +104,8 @@ their limits.
 | Parameter | Default | Meaning |
 |---|---|---|
 | `urdf_path` | `arm_description_v2`'s `camera_arm_v2.urdf` | Arm to measure. |
-| `points_per_segment` | 10 | Must match the editor's `path_node` so both use the same points. |
-| `playback_rate` | 10.0 | Path points played per second at 1x. |
+| `points_per_segment` | 20 | Must match the editor's `path_node` so both use the same points. |
+| `playback_rate` | 20.0 | Path points played per second at 1x. |
 | `speed` | 1.0 | Multiplier on `playback_rate`. The editor's Speed dropdown sets it. |
 | `free_spin` | false | Ignore the Theta and Yaw limits. Read once at startup. (The launch file turns it on for now.) |
 

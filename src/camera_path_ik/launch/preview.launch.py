@@ -27,15 +27,20 @@ def generate_launch_description():
 
     points_per_segment = ParameterValue(LaunchConfiguration('points_per_segment'),
                                         value_type=int)
+    arrow_every = ParameterValue(LaunchConfiguration('arrow_every'), value_type=int)
     playback_rate = ParameterValue(LaunchConfiguration('playback_rate'), value_type=float)
     free_spin = ParameterValue(LaunchConfiguration('free_spin'), value_type=bool)
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'points_per_segment', default_value='10',
+            'points_per_segment', default_value='20',
             description='Dense points per segment (editor drawing and IK use the same)'),
         DeclareLaunchArgument(
-            'playback_rate', default_value='10.0',
+            'arrow_every', default_value='2',
+            description='Draw an aim arrow on every Nth point of each segment'),
+        # 20 points/s with 20 points per segment: one segment per second at 1x.
+        DeclareLaunchArgument(
+            'playback_rate', default_value='20.0',
             description='Path points played per second'),
         # Temporary: on by default for now. Use free_spin:=false for the URDF limits.
         DeclareLaunchArgument(
@@ -48,7 +53,8 @@ def generate_launch_description():
             executable='path_node',
             name='camera_path_node',
             output='screen',
-            parameters=[{'points_per_segment': points_per_segment}],
+            parameters=[{'points_per_segment': points_per_segment,
+                         'arrow_every': arrow_every}],
         ),
         Node(
             package='camera_path_editor',

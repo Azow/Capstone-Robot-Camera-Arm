@@ -15,19 +15,25 @@ def generate_launch_description():
     rviz_config = os.path.join(share, 'rviz', 'editor.rviz')
 
     points_per_segment = LaunchConfiguration('points_per_segment')
+    arrow_every = LaunchConfiguration('arrow_every')
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'points_per_segment', default_value='10',
+            'points_per_segment', default_value='20',
             description='Dense points generated per segment (same for both paths)'),
+        DeclareLaunchArgument(
+            'arrow_every', default_value='2',
+            description='Draw an aim arrow on every Nth point of each segment'),
 
         Node(
             package='camera_path_editor',
             executable='path_node',
             name='camera_path_node',
             output='screen',
-            parameters=[{'points_per_segment': ParameterValue(
-                points_per_segment, value_type=int)}],
+            parameters=[{
+                'points_per_segment': ParameterValue(points_per_segment, value_type=int),
+                'arrow_every': ParameterValue(arrow_every, value_type=int),
+            }],
         ),
         Node(
             package='camera_path_editor',

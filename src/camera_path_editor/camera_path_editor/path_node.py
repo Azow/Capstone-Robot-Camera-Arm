@@ -40,7 +40,10 @@ class PathNode(Node):
 
     def __init__(self):
         super().__init__('camera_path_node')
-        self.declare_parameter('points_per_segment', 10)
+        self.declare_parameter('points_per_segment', 20)
+        # Aim arrow on every Nth point of each segment, so the path can be sampled
+        # finely (smooth playback) without crowding the view with arrows.
+        self.declare_parameter('arrow_every', 2)
         self.declare_parameter('frame_id', 'base_link')
         # The panel's "Show aim arrows" and "Show keyframes" checkboxes set these.
         self.declare_parameter('show_aim_arrows', True)
@@ -67,6 +70,10 @@ class PathNode(Node):
         if n < 1:
             self.get_logger().warn(f'points_per_segment={n} is invalid, using 1')
             n = 1
+        every = self.get_parameter('arrow_every').value
+        if every < 1:
+            self.get_logger().warn(f'arrow_every={every} is invalid, using 1')
+            every = 1
 
         cameras = [(r.camera.x, r.camera.y, r.camera.z) for r in table.rows]
         focuses = [(r.focus.x, r.focus.y, r.focus.z) for r in table.rows]
@@ -98,10 +105,12 @@ class PathNode(Node):
 
         # Aim arrows: camera sample k points at focus sample k. Both paths use
         # the same N and u values, so the two dense lists line up one to one.
+        # Counting within each segment (k % n) keeps every waypoint and the final
+        # point, even when N is not a multiple of arrow_every.
         arrows = 0
         if self.get_parameter('show_aim_arrows').value:
             for k, (cam, foc) in enumerate(zip(camera_dense, focus_dense)):
-                if math.dist(cam, foc) > MIN_ARROW_LENGTH:
+                if k % n % every == 0 and math.dist(cam, foc) > MIN_ARROW_LENGTH:
                     array.markers.append(self._arrow('aim_arrows', k, cam, foc))
                     arrows += 1
 

@@ -55,8 +55,8 @@ class IkNode(Node):
     def __init__(self):
         super().__init__('camera_path_ik')
         self.declare_parameter('urdf_path', '')
-        self.declare_parameter('points_per_segment', 10)
-        self.declare_parameter('playback_rate', 10.0)    # path points per second at 1x
+        self.declare_parameter('points_per_segment', 20)
+        self.declare_parameter('playback_rate', 20.0)    # path points per second at 1x
         self.declare_parameter('speed', 1.0)             # multiplier; the editor's dropdown sets it
         # Temporary: ignore the Theta and Yaw limits so they can spin freely.
         # Read once at startup.
