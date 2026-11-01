@@ -12,6 +12,11 @@ jumps to a point through /camera_path/seek, and its speed dropdown sets
 `speed`. A PlaybackState on /camera_path/playback keeps the editor's controls
 in step.
 
+The solved path also goes out once, as a JointTrajectory on
+/camera_path/trajectory, for arm_bridge to run on the real arm (D-09). Its
+times are divided by `speed`, so the dropdown scales the whole path; it is
+re-sent when `speed` changes.
+
 If a segment can't be timed (it starts and ends at speed 0), the path stops at
 the row before it, like an unreachable point; the editor panel shows why.
 
@@ -26,6 +31,7 @@ import time
 
 import rclpy
 from ament_index_python.packages import get_package_share_directory
+from builtin_interfaces.msg import Duration
 from camera_path_editor.sampling import DEFAULT_PERIOD, sample_timed
 from camera_path_interfaces.msg import PathIkStatus, PathTable, PlaybackState
 from rclpy.executors import ExternalShutdownException
@@ -34,6 +40,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from std_msgs.msg import UInt32
 from std_srvs.srv import SetBool
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from camera_path_ik.arm_model import ArmModel, THETA, YAW
 from camera_path_ik.ik import IkSolver
@@ -44,6 +51,7 @@ JOINT_TOPIC = '/joint_states'
 PLAYBACK_TOPIC = '/camera_path/playback'
 SEEK_TOPIC = '/camera_path/seek'
 SET_PLAYING_SERVICE = '/camera_path/set_playing'
+TRAJECTORY_TOPIC = '/camera_path/trajectory'
 
 TICK_PERIOD = 0.02   # s between published poses (50 Hz), independent of the path's timing
 
@@ -95,6 +103,8 @@ class IkNode(Node):
         self._joint_pub = self.create_publisher(JointState, JOINT_TOPIC, 10)
         self._status_pub = self.create_publisher(PathIkStatus, STATUS_TOPIC, LATCHED_QOS)
         self._playback_pub = self.create_publisher(PlaybackState, PLAYBACK_TOPIC, LATCHED_QOS)
+        self._trajectory_pub = self.create_publisher(JointTrajectory, TRAJECTORY_TOPIC,
+                                                     LATCHED_QOS)
         self.create_service(SetBool, SET_PLAYING_SERVICE, self._on_set_playing)
         self.create_subscription(UInt32, SEEK_TOPIC, self._on_seek, 10)
         self._publish_playback()
@@ -109,9 +119,12 @@ class IkNode(Node):
 
     def _on_params_changed(self, params):
         names = {p.name for p in params}
-        # `speed` is read every tick, so it changes the pace without restarting.
+        # `speed` is read every tick, so it changes the pace without restarting;
+        # the trajectory for the real arm is re-sent with the new timing.
         if 'sample_period' in names and self._last_table is not None:
             self._solve(self._last_table)
+        elif 'speed' in names:
+            self._publish_trajectory()
 
     def _on_table(self, msg):
         self._last_table = msg
@@ -145,6 +158,7 @@ class IkNode(Node):
         self._path_time = 0.0
         self._playing = False
         self._publish_pose()
+        self._publish_trajectory()
 
         total = len(path.camera)
         held = sum(1 for r in results if r.held)
@@ -221,6 +235,21 @@ class IkNode(Node):
         msg.position = [float(v) for v in self._poses[self._index]]
         self._joint_pub.publish(msg)
         self._publish_playback()
+
+    def _publish_trajectory(self):
+        msg = JointTrajectory()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.joint_names = list(self._solver.model.names)
+        speed = self.get_parameter('speed').value
+        if speed <= 0:
+            speed = 1.0
+        # Nothing reachable: send an empty trajectory, so the bridge has nothing to run.
+        for q, t in zip(self._poses[:self._count], self._times):
+            ns = round(t / speed * 1e9)
+            msg.points.append(JointTrajectoryPoint(
+                positions=[float(v) for v in q],
+                time_from_start=Duration(sec=ns // 1_000_000_000, nanosec=ns % 1_000_000_000)))
+        self._trajectory_pub.publish(msg)
 
     def _publish_playback(self):
         # Only on change: paused ticks would otherwise resend the same state.

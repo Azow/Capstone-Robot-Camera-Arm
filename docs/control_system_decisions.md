@@ -68,6 +68,7 @@ capstone_ws/
 | D-06 | Firmware works in motor steps; `arm_bridge` converts rad/m to steps | Decided |
 | D-07 | Line-based text protocol with sequence numbers | Decided |
 | D-08 | Host computer: the team's WSL laptop | Decided |
+| D-09 | `ik_node` hands the bridge the whole timed path; the bridge streams it | Decided |
 
 **D-01: Custom firmware with a serial protocol.**
 micro-ROS only changes how the board talks to the PC; step generation, driver setup and
@@ -150,6 +151,25 @@ that module and the matching code in `arm_bridge`.
 *Consequences:* the board's USB serial must be attached to WSL with `usbipd-win` every time
 it is plugged in. Add a udev rule so it always appears under a fixed name (e.g. `/dev/octopus`).
 A native Linux machine or Raspberry Pi can replace it later without firmware changes.
+
+**D-09: The bridge gets the whole path, then streams it.**
+`ik_node` publishes the solved path once, as a standard `trajectory_msgs/JointTrajectory`
+(every point with its time), on `/camera_path/trajectory`. `arm_bridge` keeps the latest
+one and, when told to run, streams it into the board's queue ahead of time (D-05).
+*Why:* if the bridge only saw `ik_node`'s live 20 Hz poses it could never send ahead, and
+any USB pause would empty the board's queue.
+*Consequences:*
+- The speed dropdown scales the whole path's timing (same proportions, faster or slower).
+  `ik_node` applies it to the published trajectory; the bridge uses whatever was published
+  when Run was pressed. Changing it during a run only affects the next run.
+- Play, Pause and the slider stay preview-only. Running the real arm is a separate
+  Run on arm / Stop arm control, so scrubbing never moves hardware.
+- Before a path, the bridge moves the arm from where it is to the path's first point, timed
+  from per-joint speed and acceleration limits in its config.
+- With hardware (or the fake board) attached, RViz's main arm shows the board's reported
+  position and the preview is drawn as a see-through ghost arm.
+- There are no encoders. The "position" the board reports is the steps it has sent, not a
+  measurement. Missed steps (stall, collision) are not detected (D-29 deferred).
 
 ### Hardware: drivers, motors, power
 
@@ -435,7 +455,128 @@ completes.
 
 ---
 
-## 4. Firmware build order
+## 4. Serial protocol (v1)
+
+The commands between `arm_bridge` and the board (D-07). `arm_bridge/protocol.py` and the
+firmware must both follow this section; the fake board (`arm_bridge/fake_board.py`)
+implements it in Python so the bridge can be tested without hardware.
+
+### Framing
+
+- ASCII text, one message per line, ending in `\n` (`\r\n` also accepted). At most 120
+  characters. Fields are separated by single spaces.
+- **Request:** `<seq> <COMMAND> [args...]`. `seq` is a positive integer the PC increases by
+  one per request. When typing by hand, `seq` can be left out; the reply then uses `-`.
+- **Reply:** exactly one per request, echoing its `seq`:
+  - `<seq> OK q=<free> [key=value...]`
+  - `<seq> ERR <CODE> q=<free> [message]`
+
+  `q` is the number of free segment slots in the queue, in every reply (D-05 flow control).
+- **Event:** a line the board sends on its own: `! <EVENT> [key=value...]`. Events can
+  arrive between any two replies.
+- The bridge sends one request and waits for its reply before the next (stop-and-wait).
+  At ~100 requests/s over USB that is plenty, and it keeps the code simple.
+
+### Positions and segments
+
+- Positions are absolute **steps** from home, as signed 32-bit integers, in joint order
+  `THETA Z R YAW PITCH`. Z is one value; the board steps both Z motors (D-12).
+- A segment is `SEG <dur_us> <theta> <z> <r> <yaw> <pitch>`: move every joint in a straight
+  line (constant speed) from where the previous segment ended to these targets, over
+  `dur_us` microseconds. The bridge sends the path's points (one every 20 ms) as segments.
+- The board checks every segment when it arrives, against the previous segment's end:
+  `1000 ≤ dur_us ≤ 1000000`, every target inside the joint's limits, and no joint faster
+  than its `max_rate`. It does **not** check acceleration; the PC plans that.
+- Segments only start moving after `GO`. Segments sent while running are appended.
+- `END` marks the last segment of a run. When the queue empties after `END` the board
+  reports `! DONE`. If it empties without `END`, the PC fell behind: the board ramps every
+  joint down to a stop and reports `! UNDERRUN` (D-05).
+
+### States
+
+| State | Meaning |
+|---|---|
+| `IDLE` | Not moving. Accepts everything. |
+| `RUNNING` | Playing queued segments. Accepts `SEG`, `END`, `STOP`, `STATUS`, `PING`. |
+| `STOPPING` | Ramping down after `STOP`, an underrun or the watchdog. Then `IDLE`. |
+| `HOMING` | Running the homing sequence (D-26). Accepts `STOP`, `STATUS`, `PING`. |
+| `FAULT` | Something went wrong that needs `CLEAR`. Clears `homed`. |
+
+Flags reported alongside: `limits` (limits received since `HELLO`), `homed`, `enabled`.
+Motion (`SEG`, `GO`) needs all three.
+
+### Commands
+
+| Command | Does | OK reply adds |
+|---|---|---|
+| `HELLO` | Start of a session: stops any motion, clears the queue and the limits. Sent on connect. | `proto=1 fw=<version> queue=<slots> max_rate=<steps/s>` |
+| `LIMITS <joint> <min> <max> <max_rate>` | Soft limits in steps and top speed in steps/s for one joint (D-06). Needed for all 5 joints before motion. `max_rate` can't exceed the board's `max_rate`. | |
+| `ENABLE` / `DISABLE` | All drivers on / off. `DISABLE` clears `homed` (motors can move unpowered; Z falls, D-31). | |
+| `HOME` | Starts homing (D-26, D-27). Replies at once; finishes with `! HOMED` or `! FAULT code=HOME_FAILED`. | |
+| `SETPOS <theta> <z> <r> <yaw> <pitch>` | **Bench testing only.** Declares the current position and sets `homed`, for testing before homing works. IDLE only. | |
+| `SEG <dur_us> <5 targets>` | Queue one segment. | |
+| `GO` | Start playing the queue. | |
+| `END` | No more segments in this run. | |
+| `STOP` | Clear the queue and ramp down to a stop; `! STOPPED` when still. Never refused. | |
+| `STATUS` | Report the state. | `state=<S> homed=0/1 enabled=0/1 limits=0/1 pos=<5 comma-separated> seg=<seq of the segment playing, or 0>` |
+| `CLEAR` | `FAULT` → `IDLE`. | |
+| `PING` | Nothing (keeps the watchdog fed). | |
+
+Bring-up commands (`INFO`, `DRIVERS`, `ENDSTOPS`, `SPIN`) stay for hand testing in `IDLE`;
+the bridge doesn't use them.
+
+### Errors
+
+| Code | When |
+|---|---|
+| `BAD_CMD` | Unknown command |
+| `BAD_ARGS` | Wrong number of arguments or not a number |
+| `BAD_STATE` | Not allowed in the current state (e.g. `SEG` while `HOMING`) |
+| `NO_LIMITS` | Motion before `LIMITS` for every joint |
+| `NOT_HOMED` | Motion before homing (D-33) |
+| `DISABLED` | Motion with the drivers off |
+| `QUEUE_FULL` | `SEG` with no free slot |
+| `OUT_OF_LIMITS` | A segment target is outside a joint's limits |
+| `TOO_FAST` | A segment needs a joint faster than its `max_rate` |
+| `NOT_IMPLEMENTED` | Command exists in the spec but not in this firmware yet (`HOME` until step 5) |
+
+### Events
+
+| Event | Meaning |
+|---|---|
+| `! DONE` | Queue finished after `END`; now `IDLE`. |
+| `! STOPPED` | Finished ramping down after `STOP`; now `IDLE`. |
+| `! UNDERRUN` | Queue ran empty without `END`; ramped down; now `IDLE`. |
+| `! WATCHDOG` | No message from the PC for 250 ms while moving; ramped down; now `IDLE`. |
+| `! HOMED` | Homing finished. |
+| `! FAULT code=<CODE>` | Entered `FAULT`. |
+
+### Watchdog
+
+While `RUNNING` or `HOMING`, any received line feeds the watchdog. The bridge polls
+`STATUS` every 20 ms, so a frozen PC or a dropped USB link stops the arm within 250 ms
+(D-32). The 250 ms is a starting value.
+
+### Example run
+
+```
+> 1 HELLO                          < 1 OK q=64 proto=1 fw=0.2 queue=64 max_rate=40000
+> 2 LIMITS THETA -20000 20000 8000 < 2 OK q=64     (and the other 4 joints)
+> 7 ENABLE                         < 7 OK q=64
+> 8 HOME                           < 8 OK q=64
+                                   < ! HOMED
+> 9 SEG 400000 1200 0 0 0 0        < 9 OK q=63     (move to the path's start)
+> 10 SEG 20000 1215 3 0 0 0        < 10 OK q=62    (path points...)
+> 40 GO                            < 40 OK q=34
+> 41 STATUS                        < 41 OK q=34 state=RUNNING ... seg=9
+   ... SEG / STATUS until the path is sent ...
+> 900 END                          < 900 OK q=20
+                                   < ! DONE
+```
+
+---
+
+## 5. Firmware build order
 
 Each step is testable on its own before the next. Status in brackets.
 
@@ -449,12 +590,16 @@ Each step is testable on its own before the next. Status in brackets.
 4. **All axes in sync,** including both Z motors, through a timer interrupt and segment queue.
 5. **Homing** with the optical switches, in the order Pitch, Yaw, Theta, Z, R.
 6. **Safety:** `STOP`, watchdog, soft limits, e-stop input.
-7. **`arm_bridge`** package and the WSL usbipd / udev setup.
+7. **`arm_bridge`** package and the WSL usbipd / udev setup. [`arm_bridge` and the fake
+   board written and tested against each other (`preview.launch.py arm:=fake`); udev rule
+   not yet written]
 8. **Connect `camera_path_ik`:** send timed points; RViz shows the real positions.
+   [done against the fake board: `ik_node` publishes `/camera_path/trajectory` (D-09), the
+   editor panel has an Arm row]
 
 ---
 
-## 5. Open questions
+## 6. Open questions
 
 | # | Question | Related |
 |---|---|---|
@@ -478,3 +623,4 @@ Each step is testable on its own before the next. Status in brackets.
 | 2026-11-01 | Unit conversion on PC (D-06). Homing order changed to Pitch, Yaw, Theta, Z, R (D-26 supersedes D-22); Z homes up, R homes outward (D-25); rest-position startup (D-27); half-vane flags proposed (D-28). Z hold assigned to mechanical team. |
 | 2026-11-01 | StallGuard added as a homing backup (D-29), then deferred: not in the first firmware. |
 | 2026-11-01 | Slot assignment decided (D-16). Bring-up firmware added in `firmware/` (build steps 1–3, untested on hardware). |
+| 2026-11-01 | Bridge gets the whole timed path (D-09). Serial protocol v1 specified (section 4). `arm_bridge` and fake board built; sections renumbered (build order is now 5, open questions 6). |

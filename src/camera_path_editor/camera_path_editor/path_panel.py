@@ -6,6 +6,11 @@ comes back on /camera_path/ik_status and the IK column shows where the path
 becomes unreachable and why, and the play controls at the bottom (Play/Pause,
 speed, and a slider to scrub along the path) move the arm.
 
+If arm_bridge is running (preview.launch.py arm:=fake or arm:=serial), an Arm
+row appears under the playback bar: motors on/off, Home, Run on arm, Stop, and
+the board's status. Play and the slider stay preview-only; only Run on arm
+moves the real arm, at the speed chosen in the dropdown when it is pressed.
+
 Table layout: even table rows are waypoint rows (one PathRow each), odd table
 rows sit between two waypoints and hold the segment-type dropdowns. The Speed
 column holds each row's camera speed; on segment rows it shows how long that
@@ -16,9 +21,12 @@ import math
 import os
 import signal
 import sys
+import time
 
 import rclpy
-from camera_path_interfaces.msg import PathIkStatus, PathRow, PathTable, PlaybackState
+from camera_path_interfaces.msg import (
+    ArmStatus, PathIkStatus, PathRow, PathTable, PlaybackState,
+)
 from python_qt_binding.QtCore import QEvent, QRect, Qt, QTimer
 from python_qt_binding.QtGui import QColor, QFont, QKeySequence, QPalette
 from python_qt_binding.QtWidgets import (
@@ -31,7 +39,7 @@ from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import UInt32
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 
 from camera_path_editor.sampling import (
     DEFAULT_SPEED, normalize_speeds, segment_timings, SUPPORTED_SEGMENT_TYPES,
@@ -50,6 +58,12 @@ IK_NODE_PARAMS = '/camera_path_ik/set_parameters'
 # Speed dropdown: label and camera_path_ik's `speed` multiplier.
 SPEEDS = (('0.25x', 0.25), ('0.5x', 0.5), ('1x', 1.0), ('2x', 2.0), ('4x', 4.0))
 DEFAULT_PLAYBACK_SPEED = '1x'
+# arm_bridge: the real arm (or the fake board).
+ARM_STATUS_TOPIC = '/arm/status'
+ARM_SERVICES = ('run', 'stop', 'home', 'clear', 'assume_homed')   # all Trigger
+ARM_ENABLE_SERVICE = '/arm/enable'
+ARM_STALE_AFTER = 1.0       # s without an ArmStatus before the Arm row is greyed out
+STOP_COLOR = QColor(200, 30, 30)
 
 WINDOW_TITLE = 'Camera Path Editor'
 FILE_FILTER = 'Path tables (*.json);;All files (*)'
@@ -150,6 +164,12 @@ class PathPanel(QMainWindow):
         self._seek_pub = node.create_publisher(UInt32, SEEK_TOPIC, 10)
         node.create_subscription(PlaybackState, PLAYBACK_TOPIC, self._on_playback, LATCHED_QOS)
         self._playing = False
+        self._arm_clients = {name: node.create_client(Trigger, f'/arm/{name}')
+                             for name in ARM_SERVICES}
+        self._arm_enable_client = node.create_client(SetBool, ARM_ENABLE_SERVICE)
+        node.create_subscription(ArmStatus, ARM_STATUS_TOPIC, self._on_arm_status, 1)
+        self._arm_status = None
+        self._arm_heard = 0.0     # monotonic time of the last ArmStatus
 
         # The model. The table widget is rebuilt from these after every
         # structural change (add, insert, delete, move).
@@ -240,6 +260,7 @@ class PathPanel(QMainWindow):
         layout.setContentsMargins(6, 6, 6, 0)
         layout.addWidget(self._table)
         layout.addWidget(playback)
+        layout.addWidget(self._build_arm_row())
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -739,6 +760,115 @@ class PathPanel(QMainWindow):
         response = future.result()
         if response is None or not response.success:
             self._show_status('camera_path_ik did not accept the play/pause request.')
+
+    # ----- the real arm (arm_bridge) -----------------------------------------
+
+    def _build_arm_row(self):
+        self._motors_button = QPushButton('Motors on')
+        self._motors_button.setToolTip('Turn the motor drivers on or off.\n'
+                                       'Turning them off loses the home position (Z can fall).')
+        self._motors_button.clicked.connect(self._on_motors_clicked)
+        self._home_button = QPushButton('Home')
+        self._home_button.setToolTip('Find every joint\'s home switch (Pitch, Yaw, Theta, Z, R).\n'
+                                     'Put the arm in its rest position first.')
+        self._home_button.clicked.connect(lambda: self._arm_call('home'))
+        self._assume_button = QPushButton('Set home here')
+        self._assume_button.setToolTip('Bench testing only: tell the board the arm is at its home\n'
+                                       'position now, without moving. Use until homing works.')
+        self._assume_button.clicked.connect(lambda: self._arm_call('assume_homed'))
+        self._run_button = QPushButton(self.style().standardIcon(QStyle.SP_MediaPlay), 'Run on arm')
+        self._run_button.setToolTip('Move the arm to the path\'s start, then run the path\n'
+                                    'at the speed chosen above.')
+        self._run_button.clicked.connect(lambda: self._arm_call('run'))
+        self._stop_button = QPushButton(self.style().standardIcon(QStyle.SP_MediaStop), 'Stop')
+        self._stop_button.setToolTip('Stop the arm now (Esc)')
+        self._stop_button.setShortcut(QKeySequence(Qt.Key_Escape))
+        palette = self._stop_button.palette()
+        palette.setColor(QPalette.ButtonText, STOP_COLOR)
+        self._stop_button.setPalette(palette)
+        self._stop_button.clicked.connect(lambda: self._arm_call('stop'))
+        self._clear_button = QPushButton('Clear fault')
+        self._clear_button.clicked.connect(lambda: self._arm_call('clear'))
+        self._arm_label = QLabel('')
+        self._arm_buttons = (self._motors_button, self._home_button, self._assume_button,
+                             self._run_button, self._stop_button, self._clear_button)
+
+        self._arm_row = QFrame()
+        self._arm_row.setFrameShape(QFrame.StyledPanel)
+        row = QHBoxLayout(self._arm_row)
+        row.setContentsMargins(8, 4, 8, 4)
+        row.addWidget(QLabel('<b>Arm</b>'))
+        for button in self._arm_buttons:
+            row.addWidget(button)
+        row.addSpacing(8)
+        row.addWidget(self._arm_label, 1)
+        # Hidden until arm_bridge is heard from; the preview works without it.
+        self._arm_row.setVisible(False)
+        self._arm_timer = QTimer(self)
+        self._arm_timer.timeout.connect(self._check_arm_stale)
+        self._arm_timer.start(500)
+        return self._arm_row
+
+    def _on_arm_status(self, msg):
+        self._arm_status = msg
+        self._arm_heard = time.monotonic()
+        self._arm_row.setVisible(True)
+        self._show_arm()
+
+    def _check_arm_stale(self):
+        if self._arm_status is not None and time.monotonic() - self._arm_heard > ARM_STALE_AFTER:
+            self._arm_status = None
+            self._show_arm()
+
+    def _show_arm(self):
+        s = self._arm_status
+        if s is None:
+            for button in self._arm_buttons:
+                button.setEnabled(False)
+            self._arm_label.setText('arm_bridge is not running')
+            return
+        idle = s.connected and s.state == 'IDLE'
+        self._motors_button.setText('Motors off' if s.enabled else 'Motors on')
+        self._motors_button.setEnabled(idle or (s.connected and s.state == 'FAULT'))
+        self._home_button.setEnabled(idle and s.enabled)
+        self._assume_button.setEnabled(idle)
+        self._run_button.setEnabled(idle and s.enabled and s.homed and not s.running)
+        self._stop_button.setEnabled(s.connected)
+        self._clear_button.setVisible(s.state == 'FAULT')
+        self._clear_button.setEnabled(s.state == 'FAULT')
+
+        if not s.connected:
+            state = 'Not connected'
+        else:
+            flags = [s.state, 'homed' if s.homed else 'not homed',
+                     'motors on' if s.enabled else 'motors off']
+            if s.running:
+                flags.append(f'{s.progress:.1f} s / {s.duration:.1f} s')
+            state = ', '.join(flags)
+        self._arm_label.setText(f'{state}.  {s.message}' if s.message else state)
+
+    def _on_motors_clicked(self):
+        on = not (self._arm_status and self._arm_status.enabled)
+        self._arm_service_call(self._arm_enable_client, SetBool.Request(data=on),
+                               'motors on' if on else 'motors off')
+
+    def _arm_call(self, name):
+        self._arm_service_call(self._arm_clients[name], Trigger.Request(), name.replace('_', ' '))
+
+    def _arm_service_call(self, client, request, what):
+        if not client.service_is_ready():
+            self._show_status(f'arm_bridge is not running, so {what} was not sent.')
+            return
+        future = client.call_async(request)
+        future.add_done_callback(lambda f: self._on_arm_reply(f, what))
+
+    def _on_arm_reply(self, future, what):
+        response = future.result()
+        if response is None:
+            self._show_status(f'arm_bridge did not answer {what}.')
+        elif not response.success:
+            self._show_status(f'Arm: {response.message}')
+            QMessageBox.warning(self, 'Arm', f'Could not {what}:\n{response.message}')
 
     # ----- publishing --------------------------------------------------------
 

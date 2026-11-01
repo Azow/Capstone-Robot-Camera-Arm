@@ -1,0 +1,28 @@
+# Joint units <-> motor steps, and the limits arm_bridge enforces (D-06).
+#
+# PLACEHOLDERS until the motors and transmissions are chosen (D-14, D-15, Q1, Q2).
+# Change them here and restart arm_bridge; no re-flashing needed.
+#
+# Listed in the board's joint order: THETA Z R YAW PITCH.
+#   urdf_name       joint name in camera_arm_v2.urdf and on /joint_states
+#   steps_per_unit  motor steps (with microstepping) per rad, or per m for Z and R
+#   home            joint position at the home switch, rad or m (the board calls it step 0)
+#   min, max        soft limits, rad or m (the board gets them in steps)
+#   max_velocity    rad/s or m/s; paths faster than this are refused
+#   max_accel       rad/s^2 or m/s^2; only used to time the move to a path's start
+
+joints:
+  # 200 steps/rev x 16 microsteps x 5:1 gearbox / 2 pi
+  - {name: THETA, urdf_name: Theta, steps_per_unit: 2546.48, home: 0.0,
+     min: -3.14, max: 3.14, max_velocity: 1.0, max_accel: 2.0}
+  # 200 x 16 / 0.040 m per rev (GT2 belt, 20-tooth pulley). Homes up (D-25).
+  - {name: Z, urdf_name: Z, steps_per_unit: 80000.0, home: 0.45,
+     min: -0.3, max: 0.45, max_velocity: 0.1, max_accel: 0.3}
+  # Same belt guess. Homes outward (D-25).
+  - {name: R, urdf_name: R, steps_per_unit: 80000.0, home: 0.39,
+     min: 0.0, max: 0.39, max_velocity: 0.1, max_accel: 0.3}
+  # 200 x 16, direct drive / 2 pi
+  - {name: YAW, urdf_name: Yaw, steps_per_unit: 509.30, home: 0.0,
+     min: -3.14, max: 3.14, max_velocity: 2.0, max_accel: 4.0}
+  - {name: PITCH, urdf_name: Pitch, steps_per_unit: 509.30, home: 0.0,
+     min: -1.57, max: 1.57, max_velocity: 2.0, max_accel: 4.0}
