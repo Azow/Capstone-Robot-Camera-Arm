@@ -1,10 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "rows": [
-    {"camera": [-0.15, 0.15, 0.05], "focus": [0.0, 0.6, 0.1]},
-    {"camera": [-0.05, 0.2, 0.1], "focus": [0.0, 0.6, 0.2]},
-    {"camera": [0.1, 0.18, 0.15], "focus": [0.0, 0.6, 0.3]},
-    {"camera": [0.16, 0.1, 0.08], "focus": [0.0, 0.6, 0.15]}
+    {"camera": [-0.15, 0.15, 0.05], "focus": [0.0, 0.6, 0.1], "speed": 0.0},
+    {"camera": [-0.05, 0.2, 0.1], "focus": [0.0, 0.6, 0.2], "speed": 0.05},
+    {"camera": [0.1, 0.18, 0.15], "focus": [0.0, 0.6, 0.3], "speed": 0.05},
+    {"camera": [0.16, 0.1, 0.08], "focus": [0.0, 0.6, 0.15], "speed": 0.0}
   ],
   "camera_segment_types": ["linear", "linear", "linear"],
   "focus_segment_types": ["linear", "linear", "linear"]

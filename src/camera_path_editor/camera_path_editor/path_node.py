@@ -10,7 +10,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from visualization_msgs.msg import Marker, MarkerArray
 
-from camera_path_editor.sampling import sample_path
+from camera_path_editor.sampling import DEFAULT_PERIOD, sample_timed
 
 TABLE_TOPIC = '/camera_path/table'
 MARKER_TOPIC = '/camera_path/markers'
@@ -40,10 +40,11 @@ class PathNode(Node):
 
     def __init__(self):
         super().__init__('camera_path_node')
-        self.declare_parameter('points_per_segment', 20)
-        # Aim arrow on every Nth point of each segment, so the path can be sampled
-        # finely (smooth playback) without crowding the view with arrows.
-        self.declare_parameter('arrow_every', 2)
+        # Seconds between dense points. camera_path_ik must use the same value.
+        self.declare_parameter('sample_period', DEFAULT_PERIOD)
+        # Aim arrow on every Nth dense point. Points are evenly spaced in time, so
+        # arrows bunch up where the camera is slow and spread out where it's fast.
+        self.declare_parameter('arrow_every', 5)
         self.declare_parameter('frame_id', 'base_link')
         # The panel's "Show aim arrows" and "Show keyframes" checkboxes set these.
         self.declare_parameter('show_aim_arrows', True)
@@ -66,10 +67,10 @@ class PathNode(Node):
         self._render(msg)
 
     def _render(self, table):
-        n = self.get_parameter('points_per_segment').value
-        if n < 1:
-            self.get_logger().warn(f'points_per_segment={n} is invalid, using 1')
-            n = 1
+        period = self.get_parameter('sample_period').value
+        if period <= 0:
+            self.get_logger().warn(f'sample_period={period} is invalid, using {DEFAULT_PERIOD}')
+            period = DEFAULT_PERIOD
         every = self.get_parameter('arrow_every').value
         if every < 1:
             self.get_logger().warn(f'arrow_every={every} is invalid, using 1')
@@ -78,12 +79,11 @@ class PathNode(Node):
         cameras = [(r.camera.x, r.camera.y, r.camera.z) for r in table.rows]
         focuses = [(r.focus.x, r.focus.y, r.focus.z) for r in table.rows]
 
-        camera_dense = sample_path(
-            cameras, list(table.camera_segment_types), n,
-            lambda i, t: self._warn_unknown('camera', i, t))
-        focus_dense = sample_path(
-            focuses, list(table.focus_segment_types), n,
-            lambda i, t: self._warn_unknown('focus', i, t))
+        speeds = [r.speed for r in table.rows]
+        path = sample_timed(cameras, focuses, list(table.camera_segment_types),
+                            list(table.focus_segment_types), speeds, period,
+                            self._warn_unknown, s_curve=table.s_curve)
+        camera_dense, focus_dense = path.camera, path.focus
 
         array = MarkerArray()
         clear = Marker()
@@ -98,26 +98,33 @@ class PathNode(Node):
                 array.markers.append(self._sphere('focus_waypoints', i, foc, RED))
                 array.markers.append(self._label('focus_labels', i, foc, RED))
 
-            # A line needs at least 2 points, so skip the paths for 0 or 1 rows.
-            if len(table.rows) >= 2:
+            # A line needs at least 2 points, so skip the paths for 0 or 1 rows
+            # (or when timing stops at the first segment).
+            if len(camera_dense) >= 2:
                 array.markers.append(self._line('camera_path', camera_dense, BLUE))
                 array.markers.append(self._line('focus_path', focus_dense, RED))
 
-        # Aim arrows: camera sample k points at focus sample k. Both paths use
-        # the same N and u values, so the two dense lists line up one to one.
-        # Counting within each segment (k % n) keeps every waypoint and the final
-        # point, even when N is not a multiple of arrow_every.
+        # Aim arrows: camera sample k points at focus sample k (both paths share
+        # one timeline, so the dense lists line up one to one). Every row and the
+        # final point get one too, whatever arrow_every is.
         arrows = 0
         if self.get_parameter('show_aim_arrows').value:
+            rows_at = set(path.row_index)
             for k, (cam, foc) in enumerate(zip(camera_dense, focus_dense)):
-                if k % n % every == 0 and math.dist(cam, foc) > MIN_ARROW_LENGTH:
+                if ((k % every == 0 or k in rows_at)
+                        and math.dist(cam, foc) > MIN_ARROW_LENGTH):
                     array.markers.append(self._arrow('aim_arrows', k, cam, foc))
                     arrows += 1
 
         self._pub.publish(array)
         self.get_logger().info(
-            f'Drew {len(table.rows)} rows (N={n}): camera path {len(camera_dense)} points, '
-            f'focus path {len(focus_dense)} points, {arrows} aim arrows')
+            f'Drew {len(table.rows)} rows: {len(camera_dense)} points every {period:g} s '
+            f'({path.duration:.2f} s), {arrows} aim arrows')
+        if path.problem_segment >= 0:
+            s = path.problem_segment
+            self.get_logger().warn(
+                f'Segment {s + 1}→{s + 2} {path.timings[s].problem}. '
+                f'Drawing the path only up to row {s + 1}.')
 
     def _warn_unknown(self, column, index, seg_type):
         self.get_logger().warn(

@@ -4,7 +4,7 @@ import pytest
 from camera_path_ik.arm_model import ArmLayoutError, ArmModel
 from camera_path_ik.kinematics import Chain
 
-from arms import REAL_URDF, TEST_ARM
+from arms import REAL_URDF, sample_limits, TEST_ARM
 
 
 def _assert_matches_fk(urdf_text):
@@ -12,7 +12,7 @@ def _assert_matches_fk(urdf_text):
     model = ArmModel.measure(chain)
     rng = np.random.default_rng(0)
     for _ in range(50):
-        q = rng.uniform(chain.lower, chain.upper)
+        q = rng.uniform(*sample_limits(chain.lower, chain.upper))
         position, look = model.camera_pose(q)
         tip = chain.fk(q)
         np.testing.assert_allclose(position, tip[:3, 3], atol=1e-12)

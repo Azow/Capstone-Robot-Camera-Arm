@@ -25,23 +25,17 @@ def generate_launch_description():
     rviz_config = os.path.join(get_package_share_directory('camera_path_ik'),
                                'rviz', 'preview.rviz')
 
-    points_per_segment = ParameterValue(LaunchConfiguration('points_per_segment'),
-                                        value_type=int)
+    sample_period = ParameterValue(LaunchConfiguration('sample_period'), value_type=float)
     arrow_every = ParameterValue(LaunchConfiguration('arrow_every'), value_type=int)
-    playback_rate = ParameterValue(LaunchConfiguration('playback_rate'), value_type=float)
     free_spin = ParameterValue(LaunchConfiguration('free_spin'), value_type=bool)
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'points_per_segment', default_value='20',
-            description='Dense points per segment (editor drawing and IK use the same)'),
+            'sample_period', default_value='0.02',
+            description='Seconds between dense path points (editor drawing and IK use the same)'),
         DeclareLaunchArgument(
-            'arrow_every', default_value='2',
-            description='Draw an aim arrow on every Nth point of each segment'),
-        # 20 points/s with 20 points per segment: one segment per second at 1x.
-        DeclareLaunchArgument(
-            'playback_rate', default_value='20.0',
-            description='Path points played per second'),
+            'arrow_every', default_value='5',
+            description='Draw an aim arrow on every Nth dense point'),
         # Off: the arm keeps every URDF joint limit. free_spin:=true is a testing aid.
         DeclareLaunchArgument(
             'free_spin', default_value='false',
@@ -53,7 +47,7 @@ def generate_launch_description():
             executable='path_node',
             name='camera_path_node',
             output='screen',
-            parameters=[{'points_per_segment': points_per_segment,
+            parameters=[{'sample_period': sample_period,
                          'arrow_every': arrow_every}],
         ),
         Node(
@@ -71,8 +65,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'urdf_path': urdf_path,
-                'points_per_segment': points_per_segment,
-                'playback_rate': playback_rate,
+                'sample_period': sample_period,
                 'free_spin': free_spin,
             }],
         ),

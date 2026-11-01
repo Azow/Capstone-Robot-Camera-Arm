@@ -50,3 +50,11 @@ assert THROUGH_AXIS_ARM.count('xyz="-0.05 0 0"') == 1 and 'xyz="0 0.02 0"' not i
 # The same arm, with Pitch able to point the camera straight up and down.
 FULL_PITCH_ARM = TEST_ARM.replace('lower="-1.5" upper="1.0"', 'lower="-1.6" upper="1.6"')
 assert FULL_PITCH_ARM != TEST_ARM
+
+
+def sample_limits(lower, upper):
+    """Joint limits to draw random test poses from: continuous joints
+    (infinite limits) use one full turn, -pi to pi."""
+    import numpy as np
+    return (np.where(np.isfinite(lower), lower, -np.pi),
+            np.where(np.isfinite(upper), upper, np.pi))

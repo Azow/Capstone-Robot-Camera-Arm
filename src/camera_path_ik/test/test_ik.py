@@ -8,7 +8,7 @@ from camera_path_ik.arm_model import ArmModel, PITCH, R, THETA, YAW
 from camera_path_ik.ik import IkSolver
 from camera_path_ik.kinematics import Chain
 
-from arms import FULL_PITCH_ARM, REAL_URDF, TEST_ARM, THROUGH_AXIS_ARM
+from arms import FULL_PITCH_ARM, REAL_URDF, sample_limits, TEST_ARM, THROUGH_AXIS_ARM
 
 needs_real_urdf = pytest.mark.skipif(not REAL_URDF.exists(),
                                      reason='arm_description_v2 URDF not found')
@@ -32,7 +32,7 @@ def _round_trip(urdf_text, count=300):
     m = solver.model
     rng = np.random.default_rng(0)
     for _ in range(count):
-        q = rng.uniform(m.lower, m.upper)
+        q = rng.uniform(*sample_limits(m.lower, m.upper))
         camera, look = m.camera_pose(q)
         focus = camera + look * rng.uniform(0.05, 1.0)
         _assert_hits(solver, solver.solve(camera, focus), camera, focus)

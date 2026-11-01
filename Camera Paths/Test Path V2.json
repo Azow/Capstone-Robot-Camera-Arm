@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "rows": [
+    {"camera": [-0.1, 0.1, 0.2], "focus": [0.0, 0.6, 0.2], "speed": 0.0},
+    {"camera": [0.0, 0.1, 0.2], "focus": [0.2, 0.6, 0.2], "speed": 0.2},
+    {"camera": [0.1, -0.1, 0.27], "focus": [0.2, 0.6, 0.2], "speed": 0.05},
+    {"camera": [0.1, -0.3, 0.2], "focus": [0.2, 0.6, 0.2], "speed": 0.0}
+  ],
+  "camera_segment_types": ["linear", "arc", "linear"],
+  "focus_segment_types": ["linear", "linear", "linear"]
+}

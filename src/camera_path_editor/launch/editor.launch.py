@@ -14,16 +14,16 @@ def generate_launch_description():
     share = get_package_share_directory('camera_path_editor')
     rviz_config = os.path.join(share, 'rviz', 'editor.rviz')
 
-    points_per_segment = LaunchConfiguration('points_per_segment')
+    sample_period = LaunchConfiguration('sample_period')
     arrow_every = LaunchConfiguration('arrow_every')
 
     return LaunchDescription([
         DeclareLaunchArgument(
-            'points_per_segment', default_value='20',
-            description='Dense points generated per segment (same for both paths)'),
+            'sample_period', default_value='0.02',
+            description='Seconds between dense path points (same for both paths)'),
         DeclareLaunchArgument(
-            'arrow_every', default_value='2',
-            description='Draw an aim arrow on every Nth point of each segment'),
+            'arrow_every', default_value='5',
+            description='Draw an aim arrow on every Nth dense point'),
 
         Node(
             package='camera_path_editor',
@@ -31,7 +31,7 @@ def generate_launch_description():
             name='camera_path_node',
             output='screen',
             parameters=[{
-                'points_per_segment': ParameterValue(points_per_segment, value_type=int),
+                'sample_period': ParameterValue(sample_period, value_type=float),
                 'arrow_every': ParameterValue(arrow_every, value_type=int),
             }],
         ),

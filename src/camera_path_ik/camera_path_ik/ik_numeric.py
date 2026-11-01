@@ -51,7 +51,10 @@ def _residual(q, chain, camera, aim):
 
 
 def _seeds(chain):
-    middle = (chain.lower + chain.upper) / 2
+    # Continuous joints have infinite limits; start them at 0.
+    finite = np.isfinite(chain.lower) & np.isfinite(chain.upper)
+    middle = np.zeros(len(chain.lower))
+    middle[finite] = (chain.lower[finite] + chain.upper[finite]) / 2
     for theta in SEED_ANGLES:
         for yaw in SEED_ANGLES:
             seed = middle.copy()

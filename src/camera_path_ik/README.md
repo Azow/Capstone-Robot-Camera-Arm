@@ -13,8 +13,9 @@ Theta (turns about a vertical axis) -> Z (slides vertically) -> R (slides horizo
 ```
 
 Roll about the viewing axis is not controlled; the arm has no joint for it.
-No timing, velocity limits, ros2_control or MoveIt yet: playback just steps
-through the path points at a fixed rate.
+Playback follows the path's timing (each row's speed, see the editor's README),
+but nothing checks joint speed or acceleration limits yet, and there's no
+ros2_control or MoveIt.
 
 ## Files
 
@@ -60,10 +61,10 @@ stays in the middle of it.
 
 Optional launch arguments:
 
-- `points_per_segment:=10`: same meaning as in the editor; both use the same value (default 20).
-- `arrow_every:=1`: how often the editor draws an aim arrow (default every 2nd point).
-- `playback_rate:=10.0`: path points played per second at 1x speed (default 20, so one
-  segment per second). Change it together with `points_per_segment` to keep the same speed.
+- `sample_period:=0.01`: seconds between dense points; the editor and IK use the same
+  value (default 0.02). Smaller is smoother but solves more points. It doesn't change
+  how long the path takes.
+- `arrow_every:=1`: how often the editor draws an aim arrow (default every 5th point).
 - `free_spin:=true`: ignore the URDF's Theta and Yaw limits, so they can spin
   freely, any number of turns. Off by default: the arm keeps every URDF joint
   limit. The other joints always keep their limits.
@@ -104,13 +105,16 @@ their limits.
 | Parameter | Default | Meaning |
 |---|---|---|
 | `urdf_path` | `arm_description_v2`'s `camera_arm_v2.urdf` | Arm to measure. |
-| `points_per_segment` | 20 | Must match the editor's `path_node` so both use the same points. |
-| `playback_rate` | 20.0 | Path points played per second at 1x. |
-| `speed` | 1.0 | Multiplier on `playback_rate`. The editor's Speed dropdown sets it. |
+| `sample_period` | 0.02 | Seconds between dense points. Must match the editor's `path_node` so both use the same points. |
+| `speed` | 1.0 | Playback time multiplier (2.0 plays the path in half its time). The editor's Speed dropdown sets it. |
 | `free_spin` | false | Ignore the Theta and Yaw limits. Read once at startup. |
 
-All but `urdf_path` and `free_spin` can be changed while running. `points_per_segment` re-solves
-the path (back to the first point, paused); `playback_rate` and `speed` only change the timing.
+All but `urdf_path` and `free_spin` can be changed while running. `sample_period` re-solves
+the path (back to the first point, paused); `speed` only changes the pace.
+
+Playback runs on the wall clock: a 50 Hz timer moves the path time forward by
+the real time since the last tick, times `speed`, and shows the last point at
+or before it. So the path takes its stated time regardless of timer jitter.
 
 ## Testing
 
