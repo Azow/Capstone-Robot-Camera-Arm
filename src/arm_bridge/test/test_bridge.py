@@ -1,5 +1,6 @@
 import math
 import os
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -147,17 +148,38 @@ def test_plan_splits_long_holds(config):
 
 # ----- bridge + fake board over a pseudo-terminal ---------------------------
 
-@pytest.fixture
-def board(tmp_path):
-    link = str(tmp_path / 'fake_octopus')
-    sim = BoardSim(home_time=0.2)
-    thread = threading.Thread(target=serve, args=(link, sim), daemon=True)
-    thread.start()
-    for _ in range(100):
+# The firmware simulator: lib/arm_core built for the PC (firmware/, pio run -e sim).
+FIRMWARE_SIM = Path(__file__).resolve().parents[3] / 'firmware' / '.pio' / 'build' / 'sim' / 'program'
+
+
+def _wait_for(link):
+    for _ in range(200):
         if os.path.exists(link):
-            break
+            return
         time.sleep(0.01)
-    return link, sim
+    raise AssertionError(f'{link} never appeared')
+
+
+@pytest.fixture(params=['python', 'firmware'])
+def board(request, tmp_path):
+    """A board to connect to: the Python fake, or the real firmware logic built for the PC.
+    Yields (link, kind)."""
+    link = str(tmp_path / 'octopus')
+    if request.param == 'python':
+        sim = BoardSim(home_time=0.2)
+        threading.Thread(target=serve, args=(link, sim), daemon=True).start()
+        _wait_for(link)
+        yield link, 'python'
+        return
+    if not FIRMWARE_SIM.exists():
+        pytest.skip('firmware simulator not built (in firmware/: pio run -e sim)')
+    process = subprocess.Popen([str(FIRMWARE_SIM), '--link', link], stdout=subprocess.DEVNULL)
+    try:
+        _wait_for(link)
+        yield link, 'firmware'
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
 
 
 def _poll_until(bridge, condition, timeout=5.0):
@@ -171,20 +193,26 @@ def _poll_until(bridge, condition, timeout=5.0):
 
 
 def test_bridge_homes_and_runs_a_path(config, board):
-    link, sim = board
+    link, kind = board
     bridge = ArmBridge(config, link, log=lambda m: None)
     _poll_until(bridge, lambda: bridge.connected and bridge.board)
-    assert sim.limits[0] == config.joints[0].step_limits() + (config.joints[0].max_rate(),)
+    assert bridge.board['limits'] == '1'
 
     ok, message = bridge.start_run([0.0], [[0.0] * 5])
     assert not ok and 'Enable' in message
     assert bridge.enable(True)[0]
-    assert bridge.home()[0]
-    _poll_until(bridge, lambda: bridge.message == 'Homed' and bridge.board.get('homed') == '1')
+    if kind == 'python':
+        assert bridge.home()[0]
+        _poll_until(bridge, lambda: bridge.message == 'Homed' and bridge.board.get('homed') == '1')
+    else:
+        # The firmware can't home yet (build step 5).
+        ok, message = bridge.home()
+        assert not ok and 'cannot home yet' in message
+        assert bridge.assume_homed()[0]
 
     # A slow sweep of Theta and Pitch, sampled every 20 ms like camera_path_ik.
     times = [i * 0.02 for i in range(51)]
-    path = [[0.4 * t, 0.45, 0.39, 0.0, -0.5 * t] for t in times]
+    path = [[0.4 * t, -0.3, 0.0, 0.0, -0.5 * t] for t in times]
     ok, message = bridge.start_run(times, path)
     assert ok, message
     _poll_until(bridge, lambda: bridge.message == 'Path finished')
@@ -194,15 +222,36 @@ def test_bridge_homes_and_runs_a_path(config, board):
 
 
 def test_bridge_stop_mid_run(config, board):
-    link, sim = board
+    link, _ = board
     bridge = ArmBridge(config, link, log=lambda m: None)
     _poll_until(bridge, lambda: bridge.connected and bridge.board)
     bridge.enable(True)
     bridge.assume_homed()
     times = [i * 0.02 for i in range(200)]
-    path = [[0.3 * math.sin(t), 0.45, 0.39, 0.0, 0.0] for t in times]
+    path = [[0.3 * math.sin(t), -0.3, 0.0, 0.0, 0.0] for t in times]
     assert bridge.start_run(times, path)[0]
     _poll_until(bridge, lambda: bridge.board.get('state') == p.RUNNING)
     assert bridge.stop()[0]
     _poll_until(bridge, lambda: bridge.board.get('state') == p.IDLE)
     assert bridge.message == 'Stopped' and bridge.run is None
+
+
+def test_bridge_jogs_one_joint(config, board):
+    link, _ = board
+    bridge = ArmBridge(config, link, log=lambda m: None)
+    _poll_until(bridge, lambda: bridge.connected and bridge.board)
+    bridge.enable(True)
+    bridge.assume_homed()
+    _poll_until(bridge, lambda: bridge.board.get('homed') == '1')
+    before = p.parse_positions(bridge.board['pos'])
+
+    ok, message = bridge.move_joint(3, 0.5, relative=True, speed_scale=0.5)   # Yaw
+    assert ok, message
+    _poll_until(bridge, lambda: bridge.message == 'Yaw moved')
+    after = p.parse_positions(bridge.board['pos'])
+    assert bridge.positions[3] == pytest.approx(0.5, abs=1 / 509)
+    assert [a for i, a in enumerate(after) if i != 3] == [b for i, b in enumerate(before) if i != 3]
+
+    ok, message = bridge.move_joint(1, 0.6)   # Z above its 0.45 m limit
+    assert not ok and 'outside its limits' in message
+    assert not bridge.move_joint(0, 0.1, speed_scale=0)[0]

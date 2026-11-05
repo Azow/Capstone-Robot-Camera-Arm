@@ -6,7 +6,9 @@
 # Listed in the board's joint order: THETA Z R YAW PITCH.
 #   urdf_name       joint name in camera_arm_v2.urdf and on /joint_states
 #   steps_per_unit  motor steps (with microstepping) per rad, or per m for Z and R
-#   home            joint position at the home switch, rad or m (the board calls it step 0)
+#   home            joint position the board calls step 0, rad or m. For now (no homing yet)
+#                   this is the rest position the arm is placed in by hand before
+#                   "Set home here" (D-27). Once homing exists it becomes each gate's position.
 #   min, max        soft limits, rad or m (the board gets them in steps)
 #   max_velocity    rad/s or m/s; paths faster than this are refused
 #   max_accel       rad/s^2 or m/s^2; only used to time the move to a path's start
@@ -15,11 +17,11 @@ joints:
   # 200 steps/rev x 16 microsteps x 5:1 gearbox / 2 pi
   - {name: THETA, urdf_name: Theta, steps_per_unit: 2546.48, home: 0.0,
      min: -3.14, max: 3.14, max_velocity: 1.0, max_accel: 2.0}
-  # 200 x 16 / 0.040 m per rev (GT2 belt, 20-tooth pulley). Homes up (D-25).
-  - {name: Z, urdf_name: Z, steps_per_unit: 80000.0, home: 0.45,
+  # 200 x 16 / 0.040 m per rev (GT2 belt, 20-tooth pulley). Rests at the bottom (D-27).
+  - {name: Z, urdf_name: Z, steps_per_unit: 80000.0, home: -0.3,
      min: -0.3, max: 0.45, max_velocity: 0.1, max_accel: 0.3}
-  # Same belt guess. Homes outward (D-25).
-  - {name: R, urdf_name: R, steps_per_unit: 80000.0, home: 0.39,
+  # Same belt guess. Rests fully retracted (D-27).
+  - {name: R, urdf_name: R, steps_per_unit: 80000.0, home: 0.0,
      min: 0.0, max: 0.39, max_velocity: 0.1, max_accel: 0.3}
   # 200 x 16, direct drive / 2 pi
   - {name: YAW, urdf_name: Yaw, steps_per_unit: 509.30, home: 0.0,

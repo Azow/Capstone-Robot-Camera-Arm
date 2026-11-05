@@ -20,6 +20,7 @@ MAX_SEGS_PER_POLL = 16   # so streaming never delays the STATUS poll (watchdog) 
 class Run:
     segments: list           # (dur_us, steps)
     duration: float          # s, including the move to the start
+    done_message: str = 'Path finished'
     sent: int = 0
     sent_time: float = 0.0   # s of run queued so far
     go_sent: bool = False
@@ -153,10 +154,11 @@ class ArmBridge:
 
     def _on_event(self, event):
         if event.name == p.DONE:
+            message = self.run.done_message if self.run else 'Finished'
             if self.run:
                 self.progress = self.run.duration
             self.run = None
-            self._say('Path finished')
+            self._say(message)
         elif event.name in (p.STOPPED, p.UNDERRUN, p.WATCHDOG):
             was_running = self.run is not None
             self.run = None
@@ -216,10 +218,54 @@ class ArmBridge:
 
     def start_run(self, times, positions):
         """Run a path (times in s, positions in board order and joint units)."""
+        ok, message = self._check_can_move()
+        if not ok:
+            return ok, message
+        start = p.parse_positions(self.board['pos'])
+        try:
+            segments, move, path = plan_run(self.config, start, times, positions)
+        except PlanError as e:
+            self._say(f'Cannot run: {e}')
+            return False, str(e)
+        self.run = Run(segments, move + path)
+        self.progress = 0.0
+        self._say(f'Running: {move:.1f} s to the start, then {path:.1f} s of path')
+        return True, 'OK'
+
+    def move_joint(self, joint, value, relative=False, speed_scale=0.25):
+        """Manual jogging: move one joint (board index) to `value`, or by `value` if
+        relative, in joint units, at speed_scale of its speed and acceleration limits."""
+        if not 0 < speed_scale <= 1:
+            return False, 'speed_scale must be in (0, 1]'
+        ok, message = self._check_can_move()
+        if not ok:
+            return ok, message
+        start = p.parse_positions(self.board['pos'])
+        target = self.config.to_units(start)
+        j = self.config.joints[joint]
+        target[joint] = target[joint] + value if relative else value
+        if not j.min - 1e-9 <= target[joint] <= j.max + 1e-9:
+            return False, (f'{j.urdf_name} to {target[joint]:.4f} {j.unit} is outside its '
+                           f'limits [{j.min}, {j.max}]')
+        # The other joints stay exactly where they are, not at a rounded copy.
+        try:
+            segments, move, _ = plan_run(self.config, start, [0.0], [target], speed_scale)
+        except PlanError as e:
+            return False, str(e)
+        for _, steps in segments:
+            for k in range(len(steps)):
+                if k != joint:
+                    steps[k] = start[k]
+        self.run = Run(segments, move, done_message=f'{j.urdf_name} moved')
+        self.progress = 0.0
+        self._say(f'Moving {j.urdf_name} ({move:.1f} s)')
+        return True, 'OK'
+
+    def _check_can_move(self):
         if not self.link:
             return False, 'Not connected to the board'
         if self.run:
-            return False, 'Already running a path'
+            return False, 'Already moving'
         try:
             self._read_status()   # the last poll may predate a command just sent
         except LinkError as e:
@@ -232,13 +278,4 @@ class ArmBridge:
             return False, 'Enable the motors first'
         if b.get('homed') != '1':
             return False, 'Home the arm first'
-        start = p.parse_positions(b['pos'])
-        try:
-            segments, move, path = plan_run(self.config, start, times, positions)
-        except PlanError as e:
-            self._say(f'Cannot run: {e}')
-            return False, str(e)
-        self.run = Run(segments, move + path)
-        self.progress = 0.0
-        self._say(f'Running: {move:.1f} s to the start, then {path:.1f} s of path')
         return True, 'OK'

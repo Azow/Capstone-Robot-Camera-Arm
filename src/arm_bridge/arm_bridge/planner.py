@@ -91,20 +91,20 @@ def _check_limits(config, q, where):
                             f'its limits [{j.min}, {j.max}]')
 
 
-def move_time(config, start, end):
+def move_time(config, start, end, scale=1.0):
     """Time for a smooth move (smoothstep) from start to end, respecting every joint's
-    max_velocity and max_accel. Smoothstep peaks at 1.5x the average speed and has a peak
-    acceleration of 6 d / T^2."""
+    max_velocity and max_accel times `scale`. Smoothstep peaks at 1.5x the average speed and
+    has a peak acceleration of 6 d / T^2."""
     t = MIN_MOVE_TIME
     for j, a, b in zip(config.joints, start, end):
         d = abs(b - a)
-        t = max(t, 1.5 * d / j.max_velocity, math.sqrt(6 * d / j.max_accel))
+        t = max(t, 1.5 * d / (j.max_velocity * scale), math.sqrt(6 * d / (j.max_accel * scale)))
     return t
 
 
-def plan_move(config, start, end):
+def plan_move(config, start, end, scale=1.0):
     """Points [(time, q)] of a smooth move, starting after `start` and ending at `end`."""
-    duration = move_time(config, start, end)
+    duration = move_time(config, start, end, scale)
     count = max(1, math.ceil(duration / SEGMENT_PERIOD))
     points = []
     for i in range(1, count + 1):
@@ -114,10 +114,11 @@ def plan_move(config, start, end):
     return points
 
 
-def plan_run(config, start_steps, times, positions):
+def plan_run(config, start_steps, times, positions, move_scale=1.0):
     """Turn a timed path (board order, joint units) into segments.
 
-    Moves from start_steps to the path's first point, then follows the path. Returns
+    Moves from start_steps to the path's first point (at move_scale of the joints' speed and
+    acceleration limits), then follows the path. A single point is just the move. Returns
     (segments, move_duration, path_duration), where each segment is (dur_us, steps).
     Raises PlanError if the path is outside the limits or too fast.
     """
@@ -138,7 +139,7 @@ def plan_run(config, start_steps, times, positions):
                     f'(slow the path down or lower the speed)')
 
     start = config.to_units(start_steps)
-    move = plan_move(config, start, positions[0])
+    move = plan_move(config, start, positions[0], move_scale)
     move_duration = move[-1][0]
     # The path's own times, shifted to start when the move ends.
     t0 = times[0]

@@ -1,0 +1,9 @@
+# Move one joint of the real arm (manual jogging). Units: rad, or m for Z and R.
+# The arm must be idle, homed and enabled; the target must be inside the joint's limits.
+string joint          # URDF joint name: Theta, Z, R, Yaw or Pitch
+float64 value         # target position, or the change when relative is true
+bool relative
+float64 speed_scale   # fraction (0..1] of the joint's max speed and acceleration
+---
+bool success
+string message

@@ -4,9 +4,10 @@ Type a path in the editor panel and the arm follows it in RViz. The Camera
 panel shows the view from the arm's camera, so the focus point (red) should
 stay in the middle of it.
 
-arm:=fake or arm:=serial also runs arm_bridge, so the editor's Arm controls
-can run the path on the fake board or the real one (port:=..., default
-/dev/octopus). RViz then shows the board's position as the solid arm and the
+arm:=fake, arm:=sim or arm:=serial also runs arm_bridge, so the editor's Arm
+controls can run the path on the Python fake board, on the firmware simulator
+(the real firmware logic built for the PC: in firmware/, pio run -e sim), or on
+the real board (port:=..., default /dev/octopus). RViz then shows the board's position as the solid arm and the
 preview as a see-through ghost.
 """
 
@@ -21,10 +22,23 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 FAKE_PORT = '/tmp/fake_octopus'
+SIM_PORT = '/tmp/sim_octopus'
+
+
+def _firmware_sim():
+    """The firmware simulator in the source tree. Found through this file's symlink, so it
+    needs colcon build --symlink-install."""
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.realpath(__file__)))))
+    program = os.path.join(repo, 'firmware', '.pio', 'build', 'sim', 'program')
+    if not os.path.exists(program):
+        raise RuntimeError(f'{program} not found: build it with "pio run -e sim" in '
+                           'firmware/ (and colcon build --symlink-install)')
+    return program
 
 
 def _arm_dependent_nodes(context, urdf_path, robot_description, sample_period, free_spin):
-    """ik_node and RViz, plus arm_bridge, the fake board and the ghost arm for arm:=fake/serial."""
+    """ik_node and RViz, plus arm_bridge, a board and the ghost arm unless arm:=none."""
     arm = LaunchConfiguration('arm').perform(context)
     rviz_dir = os.path.join(get_package_share_directory('camera_path_ik'), 'rviz')
     ik_node = Node(
@@ -52,12 +66,18 @@ def _arm_dependent_nodes(context, urdf_path, robot_description, sample_period, f
     if arm == 'none':
         return [ik_node, rviz]
 
-    port = FAKE_PORT if arm == 'fake' else LaunchConfiguration('port').perform(context)
     actions = [ik_node, rviz]
     if arm == 'fake':
+        port = FAKE_PORT
         actions.append(ExecuteProcess(
             cmd=['ros2', 'run', 'arm_bridge', 'fake_board', '--link', FAKE_PORT],
             output='screen'))
+    elif arm == 'sim':
+        port = SIM_PORT
+        actions.append(ExecuteProcess(cmd=[_firmware_sim(), '--link', SIM_PORT],
+                                      output='screen'))
+    else:
+        port = LaunchConfiguration('port').perform(context)
     actions += [
         Node(
             package='arm_bridge',
@@ -110,8 +130,9 @@ def generate_launch_description():
             'free_spin', default_value='false',
             description='Ignore the Theta and Yaw limits so they can spin freely'),
         DeclareLaunchArgument(
-            'arm', default_value='none', choices=['none', 'fake', 'serial'],
-            description='Run paths on an arm: none (preview only), fake board, or serial'),
+            'arm', default_value='none', choices=['none', 'fake', 'sim', 'serial'],
+            description='Run paths on: none (preview only), fake (Python fake board), '
+                        'sim (firmware simulator), or serial (the real board)'),
         DeclareLaunchArgument(
             'port', default_value='/dev/octopus',
             description='Serial port of the board, for arm:=serial'),
@@ -150,7 +171,7 @@ def generate_launch_description():
         # Blank image + camera info, so RViz can draw the scene from the camera.
         Node(package='arm_description_v2', executable='fake_camera'),
 
-        # IK, RViz, and (with arm:=fake/serial) the bridge and the ghost arm.
+        # IK, RViz, and (unless arm:=none) the bridge, a board and the ghost arm.
         OpaqueFunction(function=_arm_dependent_nodes,
                        args=[urdf_path, robot_description, sample_period, free_spin]),
     ])

@@ -7,7 +7,8 @@ the editor panel.
 
 Services (std_srvs): /arm/run, /arm/stop, /arm/home, /arm/clear (Trigger),
 /arm/enable (SetBool), and /arm/assume_homed (Trigger, bench testing only:
-tells the board it is sitting at the home position).
+tells the board it is sitting at the home position). /arm/move_joint
+(MoveJoint) moves one joint, for the manual jogging window.
 
 The serial port is handled on its own thread, so a slow or missing board never
 blocks ROS callbacks.
@@ -21,6 +22,7 @@ import time
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from camera_path_interfaces.msg import ArmStatus
+from camera_path_interfaces.srv import MoveJoint
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -73,6 +75,7 @@ class BridgeNode(Node):
                                ('clear', b.clear), ('assume_homed', b.assume_homed)):
             self.create_service(Trigger, f'/arm/{name}', self._trigger_handler(function))
         self.create_service(SetBool, '/arm/enable', self._on_enable)
+        self.create_service(MoveJoint, '/arm/move_joint', self._on_move_joint)
 
         self.get_logger().info(f'Joint config from {config_path}')
         self._running = True
@@ -114,6 +117,17 @@ class BridgeNode(Node):
         response.success, response.message = self._call(self._bridge.enable, request.data)
         return response
 
+    def _on_move_joint(self, request, response):
+        names = self._config.urdf_names
+        if request.joint not in names:
+            response.success = False
+            response.message = f'Unknown joint {request.joint!r}; expected one of {names}'
+            return response
+        response.success, response.message = self._call(
+            self._bridge.move_joint, names.index(request.joint), request.value,
+            request.relative, request.speed_scale)
+        return response
+
     def _run(self):
         msg = self._trajectory
         if msg is None or not msg.points:
@@ -149,7 +163,7 @@ class BridgeNode(Node):
         if self._polls % STATUS_EVERY:
             return
         board = b.board
-        self._status_pub.publish(ArmStatus(
+        status = ArmStatus(
             connected=b.connected,
             state=board.get('state', ''),
             homed=board.get('homed') == '1',
@@ -157,7 +171,15 @@ class BridgeNode(Node):
             running=b.run is not None,
             progress=float(b.progress),
             duration=float(b.run.duration if b.run else 0.0),
-            message=b.message))
+            message=b.message)
+        if b.connected and 'pos' in board:
+            joints = self._config.joints
+            status.joint_names = self._config.urdf_names
+            status.positions = [float(v) for v in b.positions]
+            status.steps = [int(v) for v in board['pos'].split(',')]
+            status.lower = [float(j.min) for j in joints]
+            status.upper = [float(j.max) for j in joints]
+        self._status_pub.publish(status)
 
 
 def main(args=None):

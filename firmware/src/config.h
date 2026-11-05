@@ -48,7 +48,7 @@ constexpr size_t kDriverCount = sizeof(kDrivers) / sizeof(kDrivers[0]);
 
 // Sense resistors set the current scale. VERIFY against the driver boards: if the value here
 // is higher than the real resistor, the motors get MORE current than requested.
-constexpr float kRSense5160 = 0.022f;  // BTT TMC5160T Pro
+constexpr float kRSense5160 = 0.075f;  // BTT TMC5160T Pro (BTT wiki; used by the driver test sketch)
 constexpr float kRSense2209 = 0.110f;  // BTT TMC2209
 
 constexpr uint32_t kTmc2209Baud = 19200;  // software UART; the TMC2209 detects the baud rate

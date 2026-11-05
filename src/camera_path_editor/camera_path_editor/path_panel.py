@@ -10,6 +10,8 @@ If arm_bridge is running (preview.launch.py arm:=fake or arm:=serial), an Arm
 row appears under the playback bar: motors on/off, Home, Run on arm, Stop, and
 the board's status. Play and the slider stay preview-only; only Run on arm
 moves the real arm, at the speed chosen in the dropdown when it is pressed.
+Its Manual jogging button opens a separate window (jog_panel.py) for moving
+one joint at a time, for testing and planning.
 
 Table layout: even table rows are waypoint rows (one PathRow each), odd table
 rows sit between two waypoints and hold the segment-type dropdowns. The Speed
@@ -41,6 +43,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import UInt32
 from std_srvs.srv import SetBool, Trigger
 
+from camera_path_editor.jog_panel import JogWindow
 from camera_path_editor.sampling import (
     DEFAULT_SPEED, normalize_speeds, segment_timings, SUPPORTED_SEGMENT_TYPES,
 )
@@ -170,6 +173,7 @@ class PathPanel(QMainWindow):
         node.create_subscription(ArmStatus, ARM_STATUS_TOPIC, self._on_arm_status, 1)
         self._arm_status = None
         self._arm_heard = 0.0     # monotonic time of the last ArmStatus
+        self._jog_window = None   # created the first time it's opened
 
         # The model. The table widget is rebuilt from these after every
         # structural change (add, insert, delete, move).
@@ -789,6 +793,10 @@ class PathPanel(QMainWindow):
         self._stop_button.clicked.connect(lambda: self._arm_call('stop'))
         self._clear_button = QPushButton('Clear fault')
         self._clear_button.clicked.connect(lambda: self._arm_call('clear'))
+        self._jog_button = QPushButton('Manual jogging')
+        self._jog_button.setToolTip('Open a window for moving one joint at a time\n'
+                                    '(testing directions, steps per unit, limits)')
+        self._jog_button.clicked.connect(self._open_jog_window)
         self._arm_label = QLabel('')
         self._arm_buttons = (self._motors_button, self._home_button, self._assume_button,
                              self._run_button, self._stop_button, self._clear_button)
@@ -800,6 +808,7 @@ class PathPanel(QMainWindow):
         row.addWidget(QLabel('<b>Arm</b>'))
         for button in self._arm_buttons:
             row.addWidget(button)
+        row.addWidget(self._jog_button)
         row.addSpacing(8)
         row.addWidget(self._arm_label, 1)
         # Hidden until arm_bridge is heard from; the preview works without it.
@@ -820,8 +829,18 @@ class PathPanel(QMainWindow):
             self._arm_status = None
             self._show_arm()
 
+    def _open_jog_window(self):
+        if self._jog_window is None:
+            self._jog_window = JogWindow(self._node, self)
+        self._jog_window.update_status(self._arm_status)
+        self._jog_window.show()
+        self._jog_window.raise_()
+        self._jog_window.activateWindow()
+
     def _show_arm(self):
         s = self._arm_status
+        if self._jog_window is not None:
+            self._jog_window.update_status(s)
         if s is None:
             for button in self._arm_buttons:
                 button.setEnabled(False)

@@ -26,7 +26,7 @@ camera_path_editor ──PathTable──> camera_path_ik (IK + playback)
                                   arm_bridge (new ROS 2 node, Python, src/)
                                         │ USB serial: timed move segments (steps)
                                         ▼
-                         Octopus Pro v1.1 firmware (new, firmware/)
+                       Octopus (STM32F446) firmware (new, firmware/)
                                         │ STEP/DIR + SPI/UART driver config
                                         ▼
                      6 drivers ──> 6 stepper motors (Theta, Z x2, R, Yaw, Pitch)
@@ -61,7 +61,7 @@ capstone_ws/
 | ID | Decision | Status |
 |---|---|---|
 | D-01 | Custom firmware with a serial protocol (not micro-ROS, not Klipper) | Decided |
-| D-02 | Toolchain: PlatformIO + Arduino framework (STM32duino) | Decided |
+| D-02 | Toolchain: PlatformIO + Arduino framework (STM32duino) | Decided (flashing superseded by D-34) |
 | D-03 | Firmware lives in `firmware/` at the repo root, outside `src/` | Decided |
 | D-04 | PC side is a Python ROS 2 node, `arm_bridge`, in `src/` | Decided |
 | D-05 | Board buffers timed move segments sent ahead by the PC | Decided |
@@ -83,10 +83,10 @@ swapped for micro-ROS later without touching motion code.
 **D-02: PlatformIO + Arduino (STM32duino).**
 Easiest to start with, runs in VS Code, and the `TMCStepper` library supports both the
 TMC5160 and TMC2209.
-*Consequence:* PlatformIO has no "Octopus Pro" board, so we build for the Nucleo-H723ZG (same
-chip and package) and override the clock setup (25 MHz crystal, 400 MHz CPU) and pin map.
-The firmware is linked after the stock 128 KiB SD-card bootloader (0x08020000), so it is
-flashed by copying `firmware.bin` to an SD card. Setup details: `firmware/README.md`.
+*Consequence:* PlatformIO has no Octopus board, so `firmware/boards/octopus_f446.json` uses
+STM32duino's generic F446ZE variant with our own clock setup and pin map. Originally written
+for the H723 (Nucleo-H723ZG base, flashed from an SD card); see D-34 for the board change and
+the Arduino IDE flashing. Setup details: `firmware/README.md`.
 
 **D-03 / D-04: Repo layout.** colcon only builds folders with a `package.xml`; the firmware
 needs a cross-compiler instead, so it lives next to `src/`. `arm_bridge` is Python to match
@@ -176,13 +176,29 @@ any USB pause would empty the board's queue.
 | ID | Decision | Status |
 |---|---|---|
 | D-10 | Driver per joint: TMC5160T Pro on Theta, Z1, Z2, R; TMC2209 on Yaw, Pitch | Decided |
-| D-11 | All drivers plug directly into Octopus Pro driver slots | Decided |
+| D-11 | All drivers plug directly into Octopus driver slots | Decided |
 | D-12 | Z axis is driven by 2 motors on 2 separate drivers | Decided |
 | D-13 | Power: 48 V for Theta/Z1/Z2/R, 24 V for Yaw/Pitch | Decided |
 | D-14 | Motor models, currents and step angles | Open (later) |
 | D-15 | Transmission per joint (gear ratio / belt / leadscrew) | Open (later) |
 | D-16 | Driver slot assignment: Driver0–3 Theta/Z1/Z2/R, Driver4–5 Yaw/Pitch | Decided |
 | D-17 | Z is driven by a belt and pulley system | Decided |
+| D-34 | Board: BTT Octopus with the STM32F446ZE; flashed from Arduino IDE with STM32CubeProgrammer | Decided |
+
+**D-34: STM32F446 board, flashed from Arduino IDE.**
+The team switched from the Octopus Pro v1.1 (STM32H723) to an Octopus with the STM32F446ZE
+(180 MHz Cortex-M4, 12 MHz crystal). Its pins are the Octopus V1.1 / Pro V1.0 set, confirmed
+by the team's driver test sketch that ran on it. The board is flashed from a different computer
+with Arduino IDE and STM32CubeProgrammer (USB DFU with the BOOT0 jumper, or SWD).
+*Consequences:*
+- PlatformIO stays the place the firmware is edited and tested on the PC (unit tests,
+  simulator). `firmware/tools/make_arduino_sketch.py` copies it into a self-contained Arduino
+  sketch, `firmware/arduino/arm_firmware/`, which is what gets flashed.
+- The firmware starts at 0x08000000: flashing replaces BTT's SD-card bootloader.
+- The 50 kHz step interrupt has 3600 CPU cycles per tick at 180 MHz (was 8000 on the H723).
+  ⚠ Verify on the board that a full-speed move with all 6 drivers keeps up.
+- ⚠ Verify: whether this board takes 48 V motor power (D-13). The Octopus Pro has a 60 V
+  `MOTOR_POWER` input; the plain Octopus V1.1 is limited to about 28 V.
 
 **D-10 / D-11: Drivers.**
 TMC5160s are configured over SPI, TMC2209s over single-wire UART, both through the Octopus
@@ -248,9 +264,9 @@ holding. So Z **will fall** whenever the Z motors lose power or are disabled. Se
 The 48 V drivers are grouped on Driver0–3 and the 24 V drivers on Driver4–5, so the power
 jumpers are easy to check at a glance.
 
-> Use only **Pro v1.1** pin maps. The non-Pro Octopus config differs: e.g. its Driver3 enable
-> pin (PA0) is the HE0 heater output on the Pro v1.1. The firmware drives all heater and fan
-> outputs off at boot as a precaution.
+> Use the **Octopus V1.1 / Pro V1.0 (F446)** pin map (D-34), not the Pro v1.1 (H723) one:
+> e.g. Driver3's enable pin is PA0 here, and PA2 (the Pro v1.1's Driver3 enable) is the HE0
+> heater output. The firmware drives all heater and fan outputs off at boot as a precaution.
 
 ### Homing and position
 
@@ -582,20 +598,25 @@ Each step is testable on its own before the next. Status in brackets.
 
 1. **Board bring-up:** USB serial, clock check (`INFO`). [code written, compiles; not yet
    tested on the board]. No LED blink: the Octopus status LED pin (PA13) is also the SWD
-   debug pin.
+   debug pin. Ported to the F446 (D-34); compiles in Arduino IDE, not yet run on it.
 2. **Driver communication:** read back the version register from every TMC5160 and
    TMC2209 (`DRIVERS`). Proves the jumpers and wiring before anything moves.
    [code written, not yet tested]
 3. **One motor spins** from a serial command (`SPIN`). [code written, not yet tested]
 4. **All axes in sync,** including both Z motors, through a timer interrupt and segment queue.
+   [code written: protocol v1 and a 50 kHz Bresenham step generator in
+   `firmware/lib/arm_core/`, unit-tested on the PC (`pio test -e native`) and run against
+   `arm_bridge` through a PC build of the same code (`pio run -e sim`,
+   `preview.launch.py arm:=sim`). Not yet tested on the board]
 5. **Homing** with the optical switches, in the order Pitch, Yaw, Theta, Z, R.
 6. **Safety:** `STOP`, watchdog, soft limits, e-stop input.
 7. **`arm_bridge`** package and the WSL usbipd / udev setup. [`arm_bridge` and the fake
    board written and tested against each other (`preview.launch.py arm:=fake`); udev rule
    not yet written]
 8. **Connect `camera_path_ik`:** send timed points; RViz shows the real positions.
-   [done against the fake board: `ik_node` publishes `/camera_path/trajectory` (D-09), the
-   editor panel has an Arm row]
+   [done against the fake board and the firmware simulator: `ik_node` publishes
+   `/camera_path/trajectory` (D-09), the editor panel has an Arm row, and a separate
+   Manual jogging window moves one joint at a time (`/arm/move_joint`)]
 
 ---
 
@@ -624,3 +645,5 @@ Each step is testable on its own before the next. Status in brackets.
 | 2026-11-01 | StallGuard added as a homing backup (D-29), then deferred: not in the first firmware. |
 | 2026-11-01 | Slot assignment decided (D-16). Bring-up firmware added in `firmware/` (build steps 1–3, untested on hardware). |
 | 2026-11-01 | Bridge gets the whole timed path (D-09). Serial protocol v1 specified (section 4). `arm_bridge` and fake board built; sections renumbered (build order is now 5, open questions 6). |
+| 2026-11-01 | Build step 4 written (firmware `lib/arm_core`: protocol v1, step generator, ramp-down, watchdog), with PC unit tests and a simulator. Manual jogging window added. |
+| 2026-11-05 | Board changed to the STM32F446 Octopus, flashed from Arduino IDE (D-34). Pin map, clock and TMC5160 sense resistor (0.075 Ω) updated. |
