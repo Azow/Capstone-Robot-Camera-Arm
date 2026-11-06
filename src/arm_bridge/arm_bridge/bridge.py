@@ -14,6 +14,7 @@ from arm_bridge.planner import PlanError, plan_run
 
 RECONNECT_PERIOD = 1.0   # s between connection attempts
 MAX_SEGS_PER_POLL = 16   # so streaming never delays the STATUS poll (watchdog) for long
+DRIVERS_TIMEOUT = 3.0    # s per line: DRIVERS talks to every driver, the TMC2209s slowly
 
 
 @dataclass
@@ -188,7 +189,33 @@ class ArmBridge:
         return True, 'OK'
 
     def enable(self, on):
+        if on:
+            ok, message = self.configure_drivers()
+            if not ok:
+                return ok, message
         return self._command('ENABLE' if on else 'DISABLE')
+
+    def configure_drivers(self):
+        """Send DRIVERS: write each driver's current and microsteps. The drivers forget them
+        whenever motor power goes off, and an unconfigured TMC5160 doesn't move its motor, so
+        this runs before every ENABLE. Boards with no drivers to set up (the fake board, the
+        firmware simulator) don't know DRIVERS; that's fine. Drivers that don't answer are
+        reported but don't block ENABLE, so a bench setup with some slots empty still works."""
+        if not self.link:
+            return False, 'Not connected to the board'
+        try:
+            reply = self.link.request('DRIVERS', timeout=DRIVERS_TIMEOUT)
+        except LinkError as e:
+            self._disconnect(e)
+            return False, str(e)
+        if reply.ok or reply.code == p.BAD_CMD:
+            return True, 'OK'
+        silent = [line.split()[1] for line in self.link.text
+                  if line.startswith('DRIVER ') and len(line.split()) > 1
+                  and not line.endswith(' ok')]
+        self._say(f'Drivers not answering: {", ".join(silent) or reply.message or reply.code}'
+                  ' (motor power off, wrong jumper, or empty slot?)')
+        return True, 'OK'
 
     def home(self):
         ok, message = self._command('HOME')
