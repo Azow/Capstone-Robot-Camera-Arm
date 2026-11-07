@@ -235,17 +235,20 @@ decelerating push voltage back up onto the supply.
 The main 24 V input also powers the board's logic (MCU), so cutting the 24 V supply resets
 the board and loses its homed position. Matters for the e-stop (D-30).
 
-**D-14 / D-15: Motors and transmissions.** To be filled in. Needed to compute
-steps-per-unit, currents, and maximum speeds/accelerations.
+**D-14 / D-15: Motors and transmissions.** Z, Yaw, Pitch and Focus motors chosen
+2026-11-07; Theta and R motors still to be chosen. Run currents (in the firmware sketch) are
+about 70-75% of rated; hold current is half of run.
+⚠ Verify: the NEMA 23's 3.0 A is listed by resellers as "peak"; if it is the amplitude rather
+than RMS, 2.0 A RMS is near its limit, so watch motor temperature.
 
 | Joint | Motor | Rated current | Step angle | Microsteps | Transmission | Steps per unit |
 |---|---|---|---|---|---|---|
-| Theta | TBD | TBD | TBD | TBD | TBD | TBD per rad |
-| Z1 / Z2 | TBD | TBD | TBD | TBD | TBD | TBD per m |
-| R | TBD | TBD | TBD | TBD | TBD | TBD per m |
-| Yaw | TBD | TBD | TBD | 16 | GT3 belt: 20-tooth motor pulley (McMaster 3764N128) to a 277-tooth ring, 13.85:1 | 7053.7 per rad |
-| Pitch | 2x 4798N12 (one per side) | TBD | TBD | 16 | GT2 belts: 16-tooth motor pulleys (McMaster 3684N11) to 120-tooth pulleys on the shaft, 7.5:1 | 3819.7 per rad |
-| Focus | NEMA 14, 25 mm | TBD | TBD | 16 | 0.8 module gears: 60-tooth brass (McMaster 2664N467) to the lens gear, ~108 teeth (estimated), ~1.8:1 | ~916.7 per rad of the ring |
+| Theta | TBD | TBD | TBD | 16 | TBD | TBD per rad |
+| Z1 / Z2 | RatRig / LDO NEMA 23 (57STH86-3004A), 345 oz-in | 3.0 A (run 2.0 A RMS) | 1.8° | 16 | TBD (arm.yaml guesses GT2, 20-tooth pulley) | TBD per m |
+| R | TBD | TBD | TBD | 16 | TBD | TBD per m |
+| Yaw | 17HS4401 NEMA 17, 40 N·cm | 1.5 A (run 1.1 A RMS) | 1.8° | 16 | GT3 belt: 20-tooth motor pulley (McMaster 3764N128) to a 277-tooth ring, 13.85:1 | 7053.7 per rad |
+| Pitch | 2x 17HS4401 NEMA 17 (one per side) | 1.5 A (run 1.1 A RMS) | 1.8° | 16 | GT2 belts: 16-tooth motor pulleys (McMaster 3684N11) to 120-tooth pulleys on the shaft, 7.5:1 | 3819.7 per rad |
+| Focus | NEMA 14 (Amazon B0FHHS5T9M), 28.2 mm body, 12 N·cm | 0.6 A (run 0.45 A RMS) | 1.8° | 16 | 0.8 module gears: 60-tooth brass (McMaster 2664N467) to the lens gear, ~108 teeth (estimated), ~1.8:1 | ~916.7 per rad of the ring |
 
 Yaw, Pitch and Focus come from the CAD (tooth counts measured from the exported meshes) and
 the McMaster part numbers; the Theta ring has ~355 teeth at 3 mm pitch (motor pulley TBD). ⚠

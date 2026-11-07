@@ -45,8 +45,9 @@
 // =============================================================================================
 // 1. Settings
 // =============================================================================================
-// Decisions D-10, D-12, D-14, D-16, D-35. Currents and microsteps are low bring-up
-// placeholders until the motors are chosen (D-14).
+// Decisions D-10, D-12, D-14, D-16, D-35. Currents follow the motors in D-14: about 70-75% of
+// each motor's rated current (RMS). THETA and R motors aren't chosen yet: their currents are
+// low bring-up placeholders.
 
 const char* const kFirmwareVersion = "0.4";
 
@@ -85,16 +86,27 @@ const JointConfig kJoints[kJointCount] = {
 
 // Z1 and Z2 always get the same steps (D-12). Their settings must match; if the two motors
 // face opposite ways, flip invert_dir on one of them.
+// All motors are 1.8 deg (200 steps/rev). Hold current is half the run current (TMCStepper's
+// default hold multiplier).
 const DriverConfig kDrivers[] = {
+    // Motor TBD: placeholder current.
     {"THETA", THETA, 0, DriverType::TMC5160, false, 400, 16},
-    {"Z1", Z, 1, DriverType::TMC5160, false, 400, 16},
-    {"Z2", Z, 2, DriverType::TMC5160, false, 400, 16},
+    // RatRig / LDO 57STH86-3004A NEMA 23, 345 oz-in, 3.0 A rated. The 5160's 0.075 ohm sense
+    // resistor tops out near 2.4 A RMS.
+    {"Z1", Z, 1, DriverType::TMC5160, false, 2000, 16},
+    {"Z2", Z, 2, DriverType::TMC5160, false, 2000, 16},
+    // Motor TBD: placeholder current.
     {"R", R, 3, DriverType::TMC5160, false, 400, 16},
-    {"YAW", YAW, 4, DriverType::TMC2209, false, 300, 16},
-    {"PITCH", PITCH, 5, DriverType::TMC2209, false, 300, 16},
-    // NEMA 14 on the follow-focus mount. Slot must be on the 24 V motor supply (TMC2209).
+    // 17HS4401 NEMA 17, 40 N*cm, 1.5 A rated.
+    {"YAW", YAW, 4, DriverType::TMC2209, false, 1100, 16},
+    // 17HS4401 NEMA 17, 1.5 A rated. The CAD has two pitch motors but this is one driver: if
+    // both are wired to it in parallel, each gets only half of this current.
+    {"PITCH", PITCH, 5, DriverType::TMC2209, false, 1100, 16},
+    // NEMA 14 on the follow-focus mount (Amazon B0FHHS5T9M): 35x35x28.2 mm, 12 N*cm,
+    // 0.6 A rated, 4.5 ohm, 6.5 mH. 450 mA = 75% of rated.
+    // Slot must be on the 24 V motor supply (TMC2209).
     // Flip invert_dir if + steps turn the ring toward infinity instead of close focus.
-    {"FOCUS", FOCUS, 6, DriverType::TMC2209, false, 200, 16},
+    {"FOCUS", FOCUS, 6, DriverType::TMC2209, false, 450, 16},
 };
 const size_t kDriverCount = sizeof(kDrivers) / sizeof(kDrivers[0]);
 
