@@ -24,6 +24,7 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
   <!-- Only the numerical cross-check (ik_numeric.py, used by the tests) needs scipy. -->

@@ -25,6 +25,7 @@ ros2_control or MoveIt.
 | `arm_model.py` | Measures the arm (axes, offsets, reach) from the forward kinematics and checks the joint layout. |
 | `ik.py` | The closed-form IK. One target -> joint positions, or the reason it can't be reached. |
 | `ik_numeric.py` | A slow numerical solver that knows nothing about the layout. Only the tests use it, as a cross-check. |
+| `lens.py` | Lens focus model: camera-to-focus-point distance -> focus ring angle, from `config/lens.yaml`. |
 | `ik_node.py` | ROS node: PathTable in, JointState (for RViz) and PathIkStatus (for the editor) out. |
 | `launch/preview.launch.py` | Editor + arm + IK + camera view + RViz. |
 
@@ -108,8 +109,10 @@ their limits.
 | `sample_period` | 0.02 | Seconds between dense points. Must match the editor's `path_node` so both use the same points. |
 | `speed` | 1.0 | Playback time multiplier (2.0 plays the path in half its time). The editor's Speed dropdown sets it. |
 | `free_spin` | false | Ignore the Theta and Yaw limits. Read once at startup. |
+| `lens_config` | this package's `config/lens.yaml` | Lens focus model. Read once at startup. |
+| `frame_id` | `base_link` | Frame of the path points, for the focus label. |
 
-All but `urdf_path` and `free_spin` can be changed while running. `sample_period` re-solves
+All but `urdf_path`, `free_spin` and `lens_config` can be changed while running. `sample_period` re-solves
 the path (back to the first point, paused); `speed` only changes the pace.
 
 Playback runs on the wall clock: a 50 Hz timer moves the path time forward by
@@ -251,3 +254,26 @@ at about 0.3 ms per point.
   that needs to stops there with "Theta/Yaw would pass its limit" instead of
   spinning a full turn back. With `free_spin:=true` there is
   no such stop, and nothing tracks how many turns the cables could take.
+
+## Focus
+
+At every path point, ik_node measures the distance from the camera point to the focus
+point and asks the lens model (`lens.py`) for the focus ring angle. The angle goes out as
+one more joint, `Focus` (rad, 0 at the lens's infinity stop, growing toward close focus),
+on `/joint_states` and in the trajectory, so arm_bridge drives the focus motor with the
+rest of the arm. The URDF has no Focus joint; robot_state_publisher ignores it.
+
+RViz shows a label above the camera (`/camera_path/focus_label`): the distance and ring
+angle at the current point, in orange when it's closer than the lens can focus (the angle
+is then held at the close stop, and ik_node logs a warning).
+
+**Changing the lens** means editing `config/lens.yaml` only:
+
+- `model: ideal` (the default): angle = throw × min_focus / distance. Needs `throw_deg`
+  and `min_focus_m`. A placeholder until the lens is calibrated.
+- `model: table`: measured `[distance_m, angle_deg]` points (`.inf` for the infinity
+  stop), interpolated in 1/distance. Start with the engraved distance marks.
+- `sensor_offset_m`: lens distances are measured from the sensor; this corrects for the
+  camera point not being exactly at the sensor.
+
+Check a config by eye: `ros2 run camera_path_ik lens_table src/camera_path_ik/config/lens.yaml`.

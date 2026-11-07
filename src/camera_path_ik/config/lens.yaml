@@ -1,0 +1,30 @@
+# The camera lens, for turning camera-to-focus-point distance into a focus ring angle.
+# Read by ik_node (parameter lens_config); see camera_path_ik/lens.py.
+#
+# Ring angle 0 is the infinity stop; it grows toward the close-focus stop.
+#
+# PLACEHOLDER: the 7Artisans "Dream" T1.5 cine prime. The SolidWorks assembly uses the 35 mm;
+# check the focal length printed on the barrel. Published specs (300 deg throw for all three):
+#   35 mm: min focus 0.70 m    50 mm: min focus 0.60 m    75 mm: min focus 0.85 m
+#
+# Check a config by eye:  ros2 run camera_path_ik lens_table <path to this file>
+
+name: 7Artisans Dream 35mm T1.5
+model: ideal          # ideal (two numbers below) or table (measured points below)
+
+throw_deg: 300.0      # ring travel from the infinity stop to the close stop
+min_focus_m: 0.70
+
+# Lens distances are measured from the sensor plane (the circle-with-a-line mark on the
+# camera body). The path's camera point is the URDF camera_optical_frame, which sits a bit in
+# front of the Pitch pivot. Set this to (sensor - camera point) along the lens axis, in m,
+# once measured: positive if the sensor is behind the camera point.
+sensor_offset_m: 0.0
+
+# For model: table. One [distance_m, ring_angle_deg] per point, any order. Use .inf for the
+# infinity stop. Angles in between are interpolated in 1/distance. Start with the engraved
+# distance marks (measure each mark's angle from the infinity stop), then replace them with
+# real calibration measurements.
+points:
+  - [.inf, 0.0]
+  - [0.70, 300.0]

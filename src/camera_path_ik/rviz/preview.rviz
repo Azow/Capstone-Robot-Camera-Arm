@@ -82,6 +82,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /camera_path/markers
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Focus Label
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /camera_path/focus_label
+      Value: true
     - Class: rviz_default_plugins/Camera
       Enabled: true
       Far Plane Distance: 100

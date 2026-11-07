@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/rviz', glob('rviz/*.rviz')),
         ('share/' + package_name + '/examples', glob('examples/*.json')),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -26,6 +27,7 @@ setup(
         'console_scripts': [
             'ik_node = camera_path_ik.ik_node:main',
             'describe_arm = camera_path_ik.arm_model:main',
+            'lens_table = camera_path_ik.lens:main',
         ],
     },
 )

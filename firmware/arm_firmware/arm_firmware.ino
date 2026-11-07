@@ -45,12 +45,14 @@
 // =============================================================================================
 // 1. Settings
 // =============================================================================================
-// Decisions D-10, D-12, D-14, D-16. Currents and microsteps are low bring-up placeholders
-// until the motors are chosen (D-14).
+// Decisions D-10, D-12, D-14, D-16, D-35. Currents and microsteps are low bring-up
+// placeholders until the motors are chosen (D-14).
 
-const char* const kFirmwareVersion = "0.3";
+const char* const kFirmwareVersion = "0.4";
 
-enum Joint : uint8_t { THETA, Z, R, YAW, PITCH, kJointCount };  // protocol order
+// Protocol order. FOCUS is the lens's focus ring (D-35): the PC turns camera-to-subject
+// distance into a ring angle and sends it in steps like any other joint.
+enum Joint : uint8_t { THETA, Z, R, YAW, PITCH, FOCUS, kJointCount };
 
 enum class DriverType : uint8_t { TMC5160, TMC2209 };
 
@@ -75,6 +77,10 @@ const JointConfig kJoints[kJointCount] = {
     {"R", 3},
     {"YAW", 4},
     {"PITCH", 5},
+    // No optical switch on focus: it will home into the lens's infinity stop by stall
+    // detection (D-36). With Driver6's DIAG jumper fitted, STOP_6 reads the driver's stall
+    // output, so ENDSTOPS shows FOCUS=1 while stalled.
+    {"FOCUS", 6},
 };
 
 // Z1 and Z2 always get the same steps (D-12). Their settings must match; if the two motors
@@ -86,6 +92,9 @@ const DriverConfig kDrivers[] = {
     {"R", R, 3, DriverType::TMC5160, false, 400, 16},
     {"YAW", YAW, 4, DriverType::TMC2209, false, 300, 16},
     {"PITCH", PITCH, 5, DriverType::TMC2209, false, 300, 16},
+    // NEMA 14 on the follow-focus mount. Slot must be on the 24 V motor supply (TMC2209).
+    // Flip invert_dir if + steps turn the ring toward infinity instead of close focus.
+    {"FOCUS", FOCUS, 6, DriverType::TMC2209, false, 200, 16},
 };
 const size_t kDriverCount = sizeof(kDrivers) / sizeof(kDrivers[0]);
 
@@ -150,12 +159,12 @@ const uint32_t kRampTicks = kTickHz / 10;       // 100 ms ramp down after a stop
 const uint64_t kOneStep = 1ULL << 32;           // ramp speeds are in 1/2^32 steps per tick
 
 // ----- Protocol constants -----
-const int kProtocolVersion = 1;
+const int kProtocolVersion = 2;  // v2 added FOCUS
 const uint32_t kWatchdogMs = 250;
 const uint32_t kMinSegmentUs = 1000;
 const uint32_t kMaxSegmentUs = 1000000;
 const int kMaxLine = 120;
-const int kMaxTokens = 10;
+const int kMaxTokens = 10;  // SEG with a seq: 3 + kJointCount
 
 // ----- Hardware constants -----
 const uint32_t kPulseNs = 200;    // STEP high time; TMC5160/2209 need about 100 ns
@@ -279,7 +288,7 @@ class Motion {
   uint64_t rampPhase_[kJointCount] = {};
 };
 
-// The serial protocol, v1: docs/control_system_decisions.md, section 4.
+// The serial protocol, v2: docs/control_system_decisions.md, section 4.
 class Protocol {
  public:
   // Runs one request line (modified in place) and writes the reply.
@@ -354,7 +363,7 @@ extern "C" void SystemClock_Config(void);
 // Writes formatted text to the USB serial port.
 void say(const char* format, ...) __attribute__((format(printf, 1, 2)));
 void say(const char* format, ...) {
-  char buffer[200];
+  char buffer[256];
   va_list args;
   va_start(args, format);
   int n = vsnprintf(buffer, sizeof(buffer), format, args);
@@ -440,9 +449,10 @@ uint8_t configure5160(TMC5160Stepper& d, const DriverConfig& c) {
   d.begin();
   d.toff(3);
   d.blank_time(24);
-  d.en_pwm_mode(false);  // SpreadCycle
+  d.en_pwm_mode(false);  // SpreadCycle (D-37)
   d.rms_current(c.run_current_ma);
   d.microsteps(c.microsteps);
+  d.intpol(true);  // smooth each step into 256 microsteps (D-37)
   return d.version();
 }
 
@@ -454,10 +464,11 @@ uint8_t configure2209(TMC2209Stepper& d, SoftwareSerial& port, const DriverConfi
   d.I_scale_analog(false);   // current from the register, not the VREF potentiometer
   d.toff(3);
   d.blank_time(24);
-  d.en_spreadCycle(false);  // StealthChop
+  d.en_spreadCycle(false);  // StealthChop (D-37)
   d.pwm_autoscale(true);
   d.rms_current(c.run_current_ma);
   d.microsteps(c.microsteps);
+  d.intpol(true);  // smooth each step into 256 microsteps (D-37)
   return d.version();
 }
 
@@ -1019,7 +1030,9 @@ void Protocol::cmdSetpos(const char* seq, int argc, char** argv) {
   }
   int32_t steps[kJointCount];
   if (argc != kJointCount || !parseInts(argv, kJointCount, steps)) {
-    err(seq, "BAD_ARGS", "SETPOS <5 positions>");
+    char message[32];
+    snprintf(message, sizeof(message), "SETPOS <%d positions>", kJointCount);
+    err(seq, "BAD_ARGS", message);
     return;
   }
   motion.setPosition(steps);
@@ -1033,7 +1046,9 @@ void Protocol::cmdSeg(const char* seq, int argc, char** argv) {
   }
   int32_t v[1 + kJointCount];
   if (argc != 1 + kJointCount || !parseInts(argv, 1 + kJointCount, v)) {
-    err(seq, "BAD_ARGS", "SEG <dur_us> <5 targets>");
+    char message[32];
+    snprintf(message, sizeof(message), "SEG <dur_us> <%d targets>", kJointCount);
+    err(seq, "BAD_ARGS", message);
     return;
   }
   if (v[0] < static_cast<int32_t>(kMinSegmentUs) || v[0] > static_cast<int32_t>(kMaxSegmentUs)) {
@@ -1120,13 +1135,14 @@ void Protocol::cmdStop(const char* seq, int, char**) {
 }
 
 void Protocol::cmdStatus(const char* seq, int, char**) {
-  char extra[160];
-  snprintf(extra, sizeof(extra),
-           "state=%s homed=%d enabled=%d limits=%d pos=%ld,%ld,%ld,%ld,%ld seg=%lu",
-           stateName(visibleState()), homed_, enabled_, hasLimits(),
-           static_cast<long>(motion.position(0)), static_cast<long>(motion.position(1)),
-           static_cast<long>(motion.position(2)), static_cast<long>(motion.position(3)),
-           static_cast<long>(motion.position(4)),
+  char extra[200];
+  int n = snprintf(extra, sizeof(extra), "state=%s homed=%d enabled=%d limits=%d pos=",
+                   stateName(visibleState()), homed_, enabled_, hasLimits());
+  for (int j = 0; j < kJointCount; ++j) {
+    n += snprintf(extra + n, sizeof(extra) - n, j ? ",%ld" : "%ld",
+                  static_cast<long>(motion.position(j)));
+  }
+  snprintf(extra + n, sizeof(extra) - n, " seg=%lu",
            static_cast<unsigned long>(motion.playingSeq()));
   ok(seq, extra);
 }
@@ -1147,7 +1163,7 @@ void Protocol::cmdPing(const char* seq, int, char**) { ok(seq); }
 const char* const kHelp =
     "Protocol commands (docs/control_system_decisions.md, section 4):\n"
     "  HELLO, LIMITS <joint> <min> <max> <max_rate>, ENABLE, DISABLE, HOME,\n"
-    "  SETPOS <5 steps>, SEG <dur_us> <5 steps>, GO, END, STOP, STATUS, CLEAR, PING\n"
+    "  SETPOS <6 steps>, SEG <dur_us> <6 steps>, GO, END, STOP, STATUS, CLEAR, PING\n"
     "Bring-up commands (IDLE only):\n"
     "  INFO                         firmware version, CPU clock, and the longest step\n"
     "                               interrupt since boot (tick_max) vs its budget\n"
@@ -1156,7 +1172,7 @@ const char* const kHelp =
     "  SPIN <joint> <steps> [rate]  move one joint at a constant rate (default 400\n"
     "                               steps/s); ENABLE first. Any input aborts.\n"
     "  ENDSTOPS                     raw endstop input levels\n"
-    "Joints: THETA Z R YAW PITCH. A leading number is the sequence number (optional).\n";
+    "Joints: THETA Z R YAW PITCH FOCUS. A leading number is the sequence number (optional).\n";
 
 // Blocking, constant speed, no acceleration. Moves the motor outside the step generator,
 // so the board forgets its position (homed=0).

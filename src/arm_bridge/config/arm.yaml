@@ -3,9 +3,11 @@
 # PLACEHOLDERS until the motors and transmissions are chosen (D-14, D-15, Q1, Q2).
 # Change them here and restart arm_bridge; no re-flashing needed.
 #
-# Listed in the board's joint order: THETA Z R YAW PITCH.
-#   urdf_name       joint name in camera_arm_v2.urdf and on /joint_states
-#   steps_per_unit  motor steps (with microstepping) per rad, or per m for Z and R
+# Listed in the board's joint order: THETA Z R YAW PITCH FOCUS.
+#   urdf_name       joint name in camera_arm_v2.urdf and on /joint_states. FOCUS (the lens
+#                   focus ring) isn't in the URDF; camera_path_ik sends it as "Focus".
+#   steps_per_unit  motor steps (with microstepping) per rad, or per m for Z and R. For FOCUS,
+#                   per rad of the lens's focus ring (not the motor shaft).
 #   home            joint position the board calls step 0, rad or m. For now (no homing yet)
 #                   this is the rest position the arm is placed in by hand before
 #                   "Set home here" (D-27). Once homing exists it becomes each gate's position.
@@ -26,8 +28,20 @@ joints:
   # Same belt guess. Rests fully retracted (D-27).
   - {name: R, urdf_name: R, steps_per_unit: 80000.0, home: 0.0,
      min: -1000.0, max: 1000.0, max_velocity: 0.45, max_accel: 0.3}
-  # 200 x 16, direct drive / 2 pi
-  - {name: YAW, urdf_name: Yaw, steps_per_unit: 509.30, home: 0.0,
-     min: -1000.0, max: 1000.0, max_velocity: 70.0, max_accel: 4.0}
-  - {name: PITCH, urdf_name: Pitch, steps_per_unit: 509.30, home: 0.0,
-     min: -1000.0, max: 1000.0, max_velocity: 70.0, max_accel: 4.0}
+  # From the CAD + McMaster parts (2026-11-07). 200 x 16 x 277/20 / 2 pi:
+  # GT3 277-tooth ring on the gimbal, 3MGT 20-tooth motor pulley (McMaster 3764N128).
+  # max_velocity: just under the board's 40000 steps/s cap (5.15 rad/s).
+  - {name: YAW, urdf_name: Yaw, steps_per_unit: 7053.71, home: 0.0,
+     min: -1000.0, max: 1000.0, max_velocity: 5.0, max_accel: 4.0}
+  # 200 x 16 x 120/16 / 2 pi: GT2 120-tooth pulleys on the pitch shaft (McMaster 3764N123
+  # size), 2MGT 16-tooth motor pulleys (McMaster 3684N11). The CAD has TWO pitch motors, one
+  # per side; both must get the same steps. max_velocity: under the 40000 steps/s cap (9.5).
+  - {name: PITCH, urdf_name: Pitch, steps_per_unit: 3819.72, home: 0.0,
+     min: -1000.0, max: 1000.0, max_velocity: 9.0, max_accel: 4.0}
+  # Lens focus ring, rad; 0 = the infinity stop, + toward close focus (camera_path_ik's
+  # lens.yaml). 200 x 16 x 108/60 / 2 pi: 0.8 module 60-tooth brass gear on the motor
+  # (McMaster 2664N467). Lens gear ~108 teeth is ESTIMATED from the CAD (lens modeled without
+  # teeth): count the teeth on the real lens. Whole 300 deg throw = 1.5 motor turns.
+  # Real limits, not opened like the others: the 300 deg throw ends in hard stops on the lens.
+  - {name: FOCUS, urdf_name: Focus, steps_per_unit: 916.73, home: 0.0,
+     min: 0.0, max: 5.236, max_velocity: 3.0, max_accel: 10.0}

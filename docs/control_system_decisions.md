@@ -76,7 +76,7 @@ homing are the same work either way. For this board micro-ROS would also need th
 STM32CubeMX/Docker build flow and a custom USB transport. A plain serial protocol can be
 tested by hand from a serial terminal with no ROS running, which matters most during bring-up.
 Klipper was rejected because its motion planner expects printer-style kinematics, not
-coordinated moves of our 5 joints.
+coordinated moves of our 6 joints.
 *Consequence:* keep all communication code in one firmware module (`protocol`) so it could be
 swapped for micro-ROS later without touching motion code.
 
@@ -177,15 +177,17 @@ any USB pause would empty the board's queue.
 
 | ID | Decision | Status |
 |---|---|---|
-| D-10 | Driver per joint: TMC5160T Pro on Theta, Z1, Z2, R; TMC2209 on Yaw, Pitch | Decided |
+| D-10 | Driver per joint: TMC5160T Pro on Theta, Z1, Z2, R; TMC2209 on Yaw, Pitch, Focus | Decided |
 | D-11 | All drivers plug directly into Octopus driver slots | Decided |
 | D-12 | Z axis is driven by 2 motors on 2 separate drivers | Decided |
-| D-13 | Power: 48 V for Theta/Z1/Z2/R, 24 V for Yaw/Pitch | Decided |
+| D-13 | Power: 48 V for Theta/Z1/Z2/R, 24 V for Yaw/Pitch/Focus | Decided |
 | D-14 | Motor models, currents and step angles | Open (later) |
-| D-15 | Transmission per joint (gear ratio / belt / leadscrew) | Open (later) |
-| D-16 | Driver slot assignment: Driver0–3 Theta/Z1/Z2/R, Driver4–5 Yaw/Pitch | Decided |
+| D-15 | Transmission per joint (gear ratio / belt / leadscrew) | Partly decided (Yaw, Pitch, Focus) |
+| D-16 | Driver slot assignment: Driver0–3 Theta/Z1/Z2/R, Driver4–6 Yaw/Pitch/Focus | Decided |
 | D-17 | Z is driven by a belt and pulley system | Decided |
 | D-34 | Board: BTT Octopus with the STM32F446ZE; flashed from Arduino IDE with STM32CubeProgrammer | Decided |
+| D-35 | Lens focus is a sixth motor axis, set from the camera-to-focus-point distance | Decided |
+| D-37 | 1/16 microstepping with interpolation to 1/256 on every driver; SpreadCycle on Theta/Z/R, StealthChop on Yaw/Pitch/Focus | Decided (for now) |
 
 **D-34: STM32F446 board, flashed from Arduino IDE.**
 The team switched from the Octopus Pro v1.1 (STM32H723) to an Octopus with the STM32F446ZE
@@ -196,7 +198,7 @@ with Arduino IDE and STM32CubeProgrammer (USB DFU with the BOOT0 jumper, or SWD)
 - The firmware is the Arduino sketch `firmware/arm_firmware/` (D-02).
 - The firmware starts at 0x08000000: flashing replaces BTT's SD-card bootloader.
 - The 50 kHz step interrupt has 3600 CPU cycles per tick at 180 MHz (was 8000 on the H723).
-  ⚠ Verify on the board that a full-speed move with all 6 drivers keeps up.
+  ⚠ Verify on the board that a full-speed move with all 7 drivers keeps up.
 - ⚠ Verify: whether this board takes 48 V motor power (D-13). The Octopus Pro has a 60 V
   `MOTOR_POWER` input; the plain Octopus V1.1 is limited to about 28 V.
 
@@ -241,12 +243,61 @@ steps-per-unit, currents, and maximum speeds/accelerations.
 | Theta | TBD | TBD | TBD | TBD | TBD | TBD per rad |
 | Z1 / Z2 | TBD | TBD | TBD | TBD | TBD | TBD per m |
 | R | TBD | TBD | TBD | TBD | TBD | TBD per m |
-| Yaw | TBD | TBD | TBD | TBD | TBD | TBD per rad |
-| Pitch | TBD | TBD | TBD | TBD | TBD | TBD per rad |
+| Yaw | TBD | TBD | TBD | 16 | GT3 belt: 20-tooth motor pulley (McMaster 3764N128) to a 277-tooth ring, 13.85:1 | 7053.7 per rad |
+| Pitch | 2x 4798N12 (one per side) | TBD | TBD | 16 | GT2 belts: 16-tooth motor pulleys (McMaster 3684N11) to 120-tooth pulleys on the shaft, 7.5:1 | 3819.7 per rad |
+| Focus | NEMA 14, 25 mm | TBD | TBD | 16 | 0.8 module gears: 60-tooth brass (McMaster 2664N467) to the lens gear, ~108 teeth (estimated), ~1.8:1 | ~916.7 per rad of the ring |
+
+Yaw, Pitch and Focus come from the CAD (tooth counts measured from the exported meshes) and
+the McMaster part numbers; the Theta ring has ~355 teeth at 3 mm pitch (motor pulley TBD). ⚠
+Verify: the lens gear's tooth count, and how the two Pitch motors are driven (one driver or
+two, D-10).
 
 **D-17: Belt-driven Z.**
 Belts can be back-driven: the weight of the carriage turns the motors when they aren't
 holding. So Z **will fall** whenever the Z motors lose power or are disabled. See D-31.
+
+**D-35: Lens focus axis.**
+The camera has a manual cine prime: a 7Artisans "Dream" T1.5 (the CAD shows the 35 mm; the
+35/50/75 mm all have a 300° focus throw with hard stops and 0.8 module gears). A NEMA 14 on
+the follow-focus mount turns the focus ring through a gear. There is no zoom.
+*Consequences:*
+- Focus is joint 6, `FOCUS`, on Driver6 (TMC2209, 24 V). Protocol v2 (section 4) adds it to
+  every position list.
+- The PC owns the lens model, like every other unit conversion (D-06):
+  `camera_path_ik/config/lens.yaml` turns camera-to-focus-point distance into a ring angle
+  (rad, 0 at the infinity stop). It starts as an ideal model (angle ∝ 1/distance) and is
+  replaced by measured points once the real lens is calibrated; nothing else changes.
+  `arm_bridge/config/arm.yaml` turns ring angle into motor steps (gear ratio).
+- camera_path_ik sends focus as a joint named `Focus` alongside the URDF joints; it is not in
+  the URDF.
+- Points closer than the lens's minimum focus distance are clamped to the close stop and
+  logged.
+- ⚠ Verify: focal length (printed on the barrel), lens gear and pinion tooth counts, and the
+  sensor plane's offset from the URDF camera frame.
+- At T1.5 depth of field is a few cm at 1 m, so the arm model's camera position must be
+  accurate at close range.
+
+**D-37: Microstepping and chopper modes.**
+Priorities: speed and torque first, then smoothness and noise (vibration shows in the footage).
+- **1/16 microsteps on every driver.** The firmware sends at most 40000 steps/s per joint
+  (50 kHz tick), which is 750 RPM at 1/16, about as fast as a stepper keeps useful torque.
+  Finer settings would make the firmware the speed limit (1/32: 375 RPM). Microstepping
+  level barely changes torque at speed.
+- **Interpolation on** (`intpol`): each driver smooths every 1/16 step into 1/256 steps
+  using the timing of the previous step. 1/256 smoothness at 1/16 step rates. It doesn't
+  change the coil current, so torque is unchanged; the motor lags its step input by at most
+  one 1/16 step.
+- **SpreadCycle on Theta, Z, R** (TMC5160): full torque at all speeds and the best response
+  to load changes; Z holds the arm against gravity. Hiss when stopped is electrical noise,
+  not vibration.
+- **StealthChop on Yaw, Pitch, Focus** (TMC2209): nearly silent and very smooth when slow,
+  which is what the camera sees. It loses torque under hard acceleration and at high speed,
+  and tunes itself on its first moves (`pwm_autoscale`), so make the first moves after power-up
+  gentle. Focus homing by stall (D-36) needs StealthChop.
+- Later, if Yaw/Pitch skip steps on fast moves: hybrid mode (StealthChop below a speed,
+  SpreadCycle above, `TPWMTHRS`), with the switch-over set from a bench skip test.
+- These match each chip's power-up default, so nothing changes from earlier firmware except
+  interpolation, which is now set explicitly.
 
 **D-16: Slot assignment.** Coded in `firmware/src/config.h`. Pins from Klipper's and BTT's
 `generic-bigtreetech-octopus-pro-v1.1.cfg` (they agree), in `firmware/src/board_pins.h`.
@@ -259,9 +310,10 @@ holding. So Z **will fall** whenever the Z motors lose power or are disabled. Se
 | Driver3 | R | TMC5160T Pro | 48 V | SPI | STOP_3 (PG11) |
 | Driver4 | Yaw | TMC2209 | 24 V | UART | STOP_4 (PG12) |
 | Driver5 | Pitch | TMC2209 | 24 V | UART | STOP_5 (PG13) |
-| Driver6, 7 | spare | | | | STOP_2, 6, 7 spare (e-stop later) |
+| Driver6 | Focus | TMC2209 | 24 V | UART | STOP_6 (PG14) = this driver's DIAG (stall), jumper **fitted** (D-36) |
+| Driver7 | spare | | | | STOP_2, 7 spare (e-stop later) |
 
-The 48 V drivers are grouped on Driver0–3 and the 24 V drivers on Driver4–5, so the power
+The 48 V drivers are grouped on Driver0–3 and the 24 V drivers on Driver4–6, so the power
 jumpers are easy to check at a glance.
 
 > Use the **Octopus V1.1 / Pro V1.0 (F446)** pin map (D-34), not the Pro v1.1 (H723) one:
@@ -282,6 +334,7 @@ jumpers are easy to check at a glance.
 | D-27 | Startup procedure: arm placed in its rest position before homing | Decided |
 | D-28 | Long "half-vane" flags so each sensor tells which side of home it's on | Proposed |
 | D-29 | StallGuard as a backup stop during homing | Deferred (later quality-of-life feature) |
+| D-36 | Focus homes by stall detection into the lens's infinity stop (exception to D-20) | Proposed (homing not written yet) |
 
 **D-20: Switches on every axis.**
 Replaces the earlier idea of using StallGuard (sensorless) on Yaw/Pitch.
@@ -408,6 +461,18 @@ search; it never sets zero.
   optical endstops occupy those endstop pins (D-20). So the firmware polls the registers
   instead of getting an interrupt.
 
+**D-36: Focus homes sensorlessly (proposed).**
+The lens has solid hard stops at both ends of its focus throw, and there's no room for an
+optical gate on the ring. Focus homes by driving toward infinity at low current until the
+TMC2209's StallGuard4 trips; that stop is ring angle 0.
+*Consequences:*
+- Exception to D-20 (switches on every axis), for this axis only.
+- Driver6's DIAG jumper stays **fitted** so the stall output reaches STOP_6 as an input
+  (D-29's polling concern doesn't apply). The TMC2209 is already in StealthChop, which
+  StallGuard4 needs.
+- Needs tuning on the real lens (`SGTHRS`, `TCOOLTHRS`, homing speed and current); ignore the
+  first steps while accelerating. Approach targets from the same side to take up gear backlash.
+
 ### Safety
 
 | ID | Decision | Status |
@@ -471,7 +536,7 @@ completes.
 
 ---
 
-## 4. Serial protocol (v1)
+## 4. Serial protocol (v2)
 
 The commands between `arm_bridge` and the board (D-07). `arm_bridge/protocol.py` and the
 firmware must both follow this section; the fake board (`arm_bridge/fake_board.py`)
@@ -496,8 +561,9 @@ implements it in Python so the bridge can be tested without hardware.
 ### Positions and segments
 
 - Positions are absolute **steps** from home, as signed 32-bit integers, in joint order
-  `THETA Z R YAW PITCH`. Z is one value; the board steps both Z motors (D-12).
-- A segment is `SEG <dur_us> <theta> <z> <r> <yaw> <pitch>`: move every joint in a straight
+  `THETA Z R YAW PITCH FOCUS`. Z is one value; the board steps both Z motors (D-12). v2
+  added `FOCUS` (D-35); v1 had the first five.
+- A segment is `SEG <dur_us> <theta> <z> <r> <yaw> <pitch> <focus>`: move every joint in a straight
   line (constant speed) from where the previous segment ended to these targets, over
   `dur_us` microseconds. The bridge sends the path's points (one every 20 ms) as segments.
 - The board checks every segment when it arrives, against the previous segment's end:
@@ -525,16 +591,16 @@ Motion (`SEG`, `GO`) needs all three.
 
 | Command | Does | OK reply adds |
 |---|---|---|
-| `HELLO` | Start of a session: stops any motion, clears the queue and the limits. Sent on connect. | `proto=1 fw=<version> queue=<slots> max_rate=<steps/s>` |
-| `LIMITS <joint> <min> <max> <max_rate>` | Soft limits in steps and top speed in steps/s for one joint (D-06). Needed for all 5 joints before motion. `max_rate` can't exceed the board's `max_rate`. | |
+| `HELLO` | Start of a session: stops any motion, clears the queue and the limits. Sent on connect. | `proto=2 fw=<version> queue=<slots> max_rate=<steps/s>` |
+| `LIMITS <joint> <min> <max> <max_rate>` | Soft limits in steps and top speed in steps/s for one joint (D-06). Needed for all 6 joints before motion. `max_rate` can't exceed the board's `max_rate`. | |
 | `ENABLE` / `DISABLE` | All drivers on / off. `DISABLE` clears `homed` (motors can move unpowered; Z falls, D-31). | |
 | `HOME` | Starts homing (D-26, D-27). Replies at once; finishes with `! HOMED` or `! FAULT code=HOME_FAILED`. | |
-| `SETPOS <theta> <z> <r> <yaw> <pitch>` | **Bench testing only.** Declares the current position and sets `homed`, for testing before homing works. IDLE only. | |
-| `SEG <dur_us> <5 targets>` | Queue one segment. | |
+| `SETPOS <theta> <z> <r> <yaw> <pitch> <focus>` | **Bench testing only.** Declares the current position and sets `homed`, for testing before homing works. IDLE only. | |
+| `SEG <dur_us> <6 targets>` | Queue one segment. | |
 | `GO` | Start playing the queue. | |
 | `END` | No more segments in this run. | |
 | `STOP` | Clear the queue and ramp down to a stop; `! STOPPED` when still. Never refused. | |
-| `STATUS` | Report the state. | `state=<S> homed=0/1 enabled=0/1 limits=0/1 pos=<5 comma-separated> seg=<seq of the segment playing, or 0>` |
+| `STATUS` | Report the state. | `state=<S> homed=0/1 enabled=0/1 limits=0/1 pos=<6 comma-separated> seg=<seq of the segment playing, or 0>` |
 | `CLEAR` | `FAULT` → `IDLE`. | |
 | `PING` | Nothing (keeps the watchdog fed). | |
 
@@ -576,13 +642,13 @@ While `RUNNING` or `HOMING`, any received line feeds the watchdog. The bridge po
 ### Example run
 
 ```
-> 1 HELLO                          < 1 OK q=64 proto=1 fw=0.2 queue=64 max_rate=40000
-> 2 LIMITS THETA -20000 20000 8000 < 2 OK q=64     (and the other 4 joints)
+> 1 HELLO                          < 1 OK q=64 proto=2 fw=0.4 queue=64 max_rate=40000
+> 2 LIMITS THETA -20000 20000 8000 < 2 OK q=64     (and the other 5 joints)
 > 7 ENABLE                         < 7 OK q=64
 > 8 HOME                           < 8 OK q=64
                                    < ! HOMED
-> 9 SEG 400000 1200 0 0 0 0        < 9 OK q=63     (move to the path's start)
-> 10 SEG 20000 1215 3 0 0 0        < 10 OK q=62    (path points...)
+> 9 SEG 400000 1200 0 0 0 0 4000   < 9 OK q=63     (move to the path's start)
+> 10 SEG 20000 1215 3 0 0 0 3990   < 10 OK q=62    (path points...)
 > 40 GO                            < 40 OK q=34
 > 41 STATUS                        < 41 OK q=34 state=RUNNING ... seg=9
    ... SEG / STATUS until the path is sent ...
@@ -632,6 +698,7 @@ Each step is testable on its own before the next. Status in brackets.
 | Q6 | Homing direction for Theta, Yaw, Pitch; can Theta reach its gate from both sides? | D-25 |
 | Q7 | Optical endstop model, supply voltage, and output when blocked | D-24 |
 | Q8 | Confirm the ⚠ Verify items against the Octopus Pro manual and driver datasheets | D-10, D-13, D-20, D-24 |
+| Q9 | Which lens focal length do we have? Lens gear and motor pinion tooth counts? | D-35 |
 
 ---
 
@@ -648,3 +715,6 @@ Each step is testable on its own before the next. Status in brackets.
 | 2026-11-01 | Build step 4 written (firmware `lib/arm_core`: protocol v1, step generator, ramp-down, watchdog), with PC unit tests and a simulator. Manual jogging window added. |
 | 2026-11-05 | Board changed to the STM32F446 Octopus, flashed from Arduino IDE (D-34). Pin map, clock and TMC5160 sense resistor (0.075 Ω) updated. |
 | 2026-11-07 | Firmware moved to one Arduino sketch, `firmware/arm_firmware/arm_firmware.ino` (D-02 revised); PlatformIO, the PC unit tests and the firmware simulator (`arm:=sim`) removed. |
+| 2026-11-07 | Lens focus added as a sixth axis, `FOCUS` on Driver6 (D-35); serial protocol v2. Focus homing by stall detection proposed (D-36). |
+| 2026-11-07 | Microstepping and chopper modes recorded (D-37); interpolation set explicitly in the firmware. |
+| 2026-11-07 | Yaw, Pitch and Focus transmissions recorded from the CAD and McMaster parts (D-15); `arm.yaml` updated. |

@@ -22,7 +22,7 @@ from collections import deque
 
 from arm_bridge import protocol as p
 
-FIRMWARE = 'fake-0.2'
+FIRMWARE = 'fake-0.3'
 
 
 class BoardSim:
@@ -116,7 +116,7 @@ class BoardSim:
     def _cmd_setpos(self, args, now, out):
         self._need_state(p.IDLE)
         if len(args) != len(p.JOINTS):
-            raise _Refused(p.BAD_ARGS, 'SETPOS <5 positions>')
+            raise _Refused(p.BAD_ARGS, f'SETPOS <{len(p.JOINTS)} positions>')
         self.pos = [float(v) for v in _ints(args)]
         self.homed = True
 
@@ -124,7 +124,7 @@ class BoardSim:
         self._need_state(p.IDLE, p.RUNNING)
         self._need_ready()
         if len(args) != 1 + len(p.JOINTS):
-            raise _Refused(p.BAD_ARGS, 'SEG <dur_us> <5 targets>')
+            raise _Refused(p.BAD_ARGS, f'SEG <dur_us> <{len(p.JOINTS)} targets>')
         dur_us, *targets = _ints(args)
         if not p.MIN_SEGMENT_US <= dur_us <= p.MAX_SEGMENT_US:
             raise _Refused(p.BAD_ARGS, f'dur_us must be {p.MIN_SEGMENT_US}..{p.MAX_SEGMENT_US}')

@@ -23,9 +23,18 @@ the row before it, like an unreachable point; the editor panel shows why.
 If a point can't be reached, solving stops there: the arm plays up to the
 point before it, and a PathIkStatus says which point and why. The editor
 panel shows that in its IK column; RViz only shows the arm and the paths.
+
+Focus: at every point the camera-to-focus-point distance goes through the lens
+model (lens.py, config/lens.yaml) to get the focus ring angle. It is sent as
+one more joint, `Focus` (rad, 0 at the infinity stop), on /joint_states and in
+the trajectory, so arm_bridge drives the focus motor with the rest. The URDF
+has no Focus joint; robot_state_publisher ignores it. A text label at the
+camera on /camera_path/focus_label shows the distance and ring angle, and
+points closer than the lens's minimum focus are clamped and logged.
 """
 
 import bisect
+import math
 import os
 import time
 
@@ -41,9 +50,11 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import UInt32
 from std_srvs.srv import SetBool
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from visualization_msgs.msg import Marker
 
 from camera_path_ik.arm_model import ArmModel, THETA, YAW
 from camera_path_ik.ik import IkSolver
+from camera_path_ik.lens import LensModel
 
 TABLE_TOPIC = '/camera_path/table'
 STATUS_TOPIC = '/camera_path/ik_status'
@@ -52,6 +63,10 @@ PLAYBACK_TOPIC = '/camera_path/playback'
 SEEK_TOPIC = '/camera_path/seek'
 SET_PLAYING_SERVICE = '/camera_path/set_playing'
 TRAJECTORY_TOPIC = '/camera_path/trajectory'
+FOCUS_LABEL_TOPIC = '/camera_path/focus_label'
+
+FOCUS_JOINT = 'Focus'   # the focus ring, appended after the arm's joints
+FOCUS_LABEL_LIFT = 0.06  # m; the label floats this far above the camera point
 
 TICK_PERIOD = 0.02   # s between published poses (50 Hz), independent of the path's timing
 
@@ -67,6 +82,10 @@ def _default_urdf_path():
                         'urdf', 'camera_arm_v2.urdf')
 
 
+def _default_lens_path():
+    return os.path.join(get_package_share_directory('camera_path_ik'), 'config', 'lens.yaml')
+
+
 class IkNode(Node):
 
     def __init__(self):
@@ -79,6 +98,9 @@ class IkNode(Node):
         # Temporary: ignore the Theta and Yaw limits so they can spin freely.
         # Read once at startup.
         self.declare_parameter('free_spin', False)
+        # The lens focus model (read once at startup) and the frame the path is given in.
+        self.declare_parameter('lens_config', '')
+        self.declare_parameter('frame_id', 'base_link')
 
         urdf_path = self.get_parameter('urdf_path').value or _default_urdf_path()
         with open(urdf_path) as f:
@@ -89,10 +111,15 @@ class IkNode(Node):
         self.get_logger().info(f'Arm measured from {urdf_path}:\n{model.describe()}')
         if self.get_parameter('free_spin').value:
             self.get_logger().warn('free_spin is on: Theta and Yaw limits are ignored')
+        lens_path = self.get_parameter('lens_config').value or _default_lens_path()
+        self._lens = LensModel.load(lens_path)
+        self.get_logger().info(f'Lens from {lens_path}: {self._lens.describe()}')
 
         self._last_table = None
         self._poses = [model.q_ref]   # joint positions to play, in order
         self._times = [0.0]           # path time of each pose, seconds
+        self._focus = [0.0]           # focus ring angle of each pose, rad
+        self._focus_info = [None]     # (camera point, distance m, too close) of each pose
         self._index = 0
         self._count = 0               # reachable points; 0 when only showing the reference pose
         self._playing = False
@@ -105,6 +132,7 @@ class IkNode(Node):
         self._playback_pub = self.create_publisher(PlaybackState, PLAYBACK_TOPIC, LATCHED_QOS)
         self._trajectory_pub = self.create_publisher(JointTrajectory, TRAJECTORY_TOPIC,
                                                      LATCHED_QOS)
+        self._focus_label_pub = self.create_publisher(Marker, FOCUS_LABEL_TOPIC, 10)
         self.create_service(SetBool, SET_PLAYING_SERVICE, self._on_set_playing)
         self.create_subscription(UInt32, SEEK_TOPIC, self._on_seek, 10)
         self._publish_playback()
@@ -153,6 +181,7 @@ class IkNode(Node):
         self._poses = reached or [self._solver.model.q_ref]
         self._times = path.times[:len(reached)] or [0.0]
         self._count = len(reached)
+        self._solve_focus(path, len(reached))
         # A new path starts paused at its first point.
         self._index = 0
         self._path_time = 0.0
@@ -174,6 +203,29 @@ class IkNode(Node):
                 f'Point {failed + 1} of {total} ({self._where(path, failed)}) is '
                 f'unreachable: {reason}. {playing}')
         self._publish_status(path, failed, None if failed is None else results[failed].reason)
+
+    def _solve_focus(self, path, count):
+        """Focus ring angle for each reachable point, and a warning for any too close."""
+        lens = self._lens
+        self._focus = []
+        self._focus_info = []
+        too_close = []
+        for k in range(count):
+            distance = lens.focus_distance(path.camera[k], path.focus[k])
+            close = lens.too_close(distance)
+            if close:
+                too_close.append(k)
+            self._focus.append(lens.angle(distance))
+            self._focus_info.append((path.camera[k], distance, close))
+        if not self._focus:
+            self._focus = [0.0]
+            self._focus_info = [None]
+        if too_close:
+            nearest = min(self._focus_info[k][1] for k in too_close)
+            self.get_logger().warn(
+                f'{len(too_close)} points are closer than the lens can focus '
+                f'({lens.min_focus:.2f} m), first at {self._where(path, too_close[0])}, '
+                f'nearest {nearest:.2f} m. Focus is held at the close stop there.')
 
     @staticmethod
     def _where(path, index):
@@ -231,23 +283,53 @@ class IkNode(Node):
     def _publish_pose(self):
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.name = list(self._solver.model.names)
-        msg.position = [float(v) for v in self._poses[self._index]]
+        msg.name = list(self._solver.model.names) + [FOCUS_JOINT]
+        msg.position = ([float(v) for v in self._poses[self._index]]
+                        + [float(self._focus[self._index])])
         self._joint_pub.publish(msg)
+        self._publish_focus_label()
         self._publish_playback()
+
+    def _publish_focus_label(self):
+        info = self._focus_info[self._index]
+        m = Marker()
+        m.header.frame_id = self.get_parameter('frame_id').value
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.ns = 'focus'
+        m.id = 0
+        if info is None:
+            m.action = Marker.DELETE
+            self._focus_label_pub.publish(m)
+            return
+        camera, distance, close = info
+        m.type = Marker.TEXT_VIEW_FACING
+        m.action = Marker.ADD
+        m.pose.position.x, m.pose.position.y = float(camera[0]), float(camera[1])
+        m.pose.position.z = float(camera[2]) + FOCUS_LABEL_LIFT
+        m.pose.orientation.w = 1.0
+        m.scale.z = 0.03
+        angle = math.degrees(self._focus[self._index])
+        m.text = f'focus {distance:.2f} m -> {angle:.0f} deg'
+        if close:
+            m.text += f' (too close, min {self._lens.min_focus:.2f} m)'
+            m.color.r, m.color.g, m.color.b = 1.0, 0.55, 0.0
+        else:
+            m.color.r = m.color.g = m.color.b = 1.0
+        m.color.a = 1.0
+        self._focus_label_pub.publish(m)
 
     def _publish_trajectory(self):
         msg = JointTrajectory()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.joint_names = list(self._solver.model.names)
+        msg.joint_names = list(self._solver.model.names) + [FOCUS_JOINT]
         speed = self.get_parameter('speed').value
         if speed <= 0:
             speed = 1.0
         # Nothing reachable: send an empty trajectory, so the bridge has nothing to run.
-        for q, t in zip(self._poses[:self._count], self._times):
+        for q, focus, t in zip(self._poses[:self._count], self._focus, self._times):
             ns = round(t / speed * 1e9)
             msg.points.append(JointTrajectoryPoint(
-                positions=[float(v) for v in q],
+                positions=[float(v) for v in q] + [float(focus)],
                 time_from_start=Duration(sec=ns // 1_000_000_000, nanosec=ns % 1_000_000_000)))
         self._trajectory_pub.publish(msg)
 

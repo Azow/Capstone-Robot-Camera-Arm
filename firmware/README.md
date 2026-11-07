@@ -29,20 +29,22 @@ The whole firmware is one Arduino sketch, `arm_firmware/`:
 | Driver3 | R | TMC5160T Pro | 48 V | SPI | STOP_3 |
 | Driver4 | Yaw | TMC2209 | **24 V** | UART | STOP_4 |
 | Driver5 | Pitch | TMC2209 | **24 V** | UART | STOP_5 |
-| Driver6, 7 | spare | | | | STOP_2, 6, 7 spare (e-stop later) |
+| Driver6 | Focus | TMC2209 | **24 V** | UART | STOP_6 = its DIAG (stall), jumper fitted |
+| Driver7 | spare | | | | STOP_2, 7 spare (e-stop later) |
 
 ## Before the first power-on
 
 Check all of these against the BTT Octopus manual for this board.
 
-- [ ] **Driver4 and Driver5 (TMC2209) are powered from 24 V, NOT the 48 V motor input.**
+- [ ] **Driver4, 5 and 6 (TMC2209) are powered from 24 V, NOT the 48 V motor input.**
       A TMC2209 on 48 V is destroyed.
 - [ ] This board takes 48 V motor power at all (the Octopus Pro has a 60 V `MOTOR_POWER`
       input; the plain Octopus V1.1 is limited to about 28 V). See D-34.
 - [ ] Driver0–3 (TMC5160T Pro) are jumpered to the 48 V motor-power input, and the
       TMC5160T Pro is rated for 48 V with margin.
-- [ ] Each slot's mode jumpers match its driver: SPI for Driver0–3, UART for Driver4–5.
-- [ ] DIAG jumpers removed on the slots whose endstop inputs we use.
+- [ ] Each slot's mode jumpers match its driver: SPI for Driver0–3, UART for Driver4–6.
+- [ ] DIAG jumpers removed on the slots whose endstop inputs have optical switches (Driver0,
+      1, 3, 4, 5). Driver6 (Focus) keeps its DIAG jumper: focus will home by stall (D-36).
 - [ ] Driver orientation in the sockets (EN pin to EN): a reversed driver is destroyed.
 - [ ] `kRSense5160` in the `.ino`'s Settings section (0.075 Ω, from BTT's wiki) matches the sense resistors
       on the TMC5160T Pro (marked R075; an R022 board needs 0.022). If the code's value is
@@ -125,7 +127,7 @@ Bring-up commands, only while IDLE:
 
 `ENABLE` / `DISABLE` switch **all** drivers. **Z falls when disabled unless supported.**
 
-Joints: `THETA Z R YAW PITCH`.
+Joints: `THETA Z R YAW PITCH FOCUS` (FOCUS is the lens focus motor on Driver6, D-35).
 
 ## First test, in order
 
@@ -138,11 +140,11 @@ Joints: `THETA Z R YAW PITCH`.
    `ENABLE`, then `SPIN YAW 3200 400` (one turn at 16 microsteps, 200-step motor).
 5. Z only with the carriage supported: `SPIN Z 400 200`. Check both motors turn the same
    way; if not, set `invert_dir` on Z2 in the Settings section.
-6. The step generator, by hand: `HELLO`, `LIMITS` for all five joints (e.g.
-   `LIMITS YAW -3200 3200 4000`), `SETPOS 0 0 0 0 0`, `SEG 200000 0 0 0 640 0`, `END`,
+6. The step generator, by hand: `HELLO`, `LIMITS` for all six joints (e.g.
+   `LIMITS YAW -3200 3200 4000`), `SETPOS 0 0 0 0 0 0`, `SEG 200000 0 0 0 640 0 0`, `END`,
    `GO`: Yaw turns a fifth of a turn in 0.2 s, then `! DONE`. Keep hand-typed moves under
    0.25 s: the watchdog stops a move when nothing arrives from the PC for 250 ms.
 7. Then from ROS: `ros2 launch camera_path_ik preview.launch.py arm:=serial port:=/dev/ttyACM0`.
 
-The currents in the Settings section are low placeholders (400 mA / 300 mA) until the real motors
+The currents in the Settings section are low placeholders (400 mA / 300 mA / 200 mA focus) until the real motors
 are known (D-14).

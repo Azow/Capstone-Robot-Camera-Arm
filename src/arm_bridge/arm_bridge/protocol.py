@@ -1,4 +1,4 @@
-"""The serial protocol between arm_bridge and the board, v1.
+"""The serial protocol between arm_bridge and the board, v2.
 
 The spec is section 4 of docs/control_system_decisions.md; this module and the
 firmware must both follow it. Only formatting and parsing live here: no serial
@@ -7,10 +7,10 @@ port, no timing, so the bridge and the fake board share it.
 
 from dataclasses import dataclass, field
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2   # v2 added FOCUS, the lens focus motor
 
 # Board joint order. Every position list on the wire is in this order.
-JOINTS = ('THETA', 'Z', 'R', 'YAW', 'PITCH')
+JOINTS = ('THETA', 'Z', 'R', 'YAW', 'PITCH', 'FOCUS')
 
 MAX_LINE = 120
 MIN_SEGMENT_US = 1000

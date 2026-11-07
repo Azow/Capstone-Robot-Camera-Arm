@@ -48,6 +48,10 @@ so use **Set home here** with the arm placed at its home position by hand.
 per joint. **All placeholders** until the motors and transmissions are chosen. A path that is
 too fast for a joint is refused with a message saying which point and joint.
 
+`FOCUS` is the lens focus ring (`Focus` in the trajectory, from camera_path_ik's lens model).
+Its unit is rad of the *ring*, so `steps_per_unit` includes the lens-gear / pinion ratio. Its
+limits are the lens's real hard stops (0 to 300°), not opened up like the bench-test ones.
+
 ## Talking to a board by hand
 
 ```
