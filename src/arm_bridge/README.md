@@ -25,9 +25,6 @@ An **Arm** row appears in the editor panel. Then:
 
 The speed dropdown applies to the next Run.
 
-Use `arm:=sim` instead to run the **real firmware logic** built for the PC (build it first:
-`cd firmware && pio run -e sim`). It can't home yet, so use **Set home here**.
-
 ## Manual jogging
 
 **Manual jogging** in the Arm row opens a separate window for moving one joint at a time:

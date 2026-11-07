@@ -10,28 +10,14 @@ timed segments, and steps every joint from a 50 kHz timer interrupt. The bring-u
 (`INFO`, `DRIVERS`, `ENDSTOPS`, `SPIN`) are still there for testing by hand. Homing (step 5)
 is not written yet: `HOME` answers `NOT_IMPLEMENTED`; use `SETPOS` on the bench.
 
-The protocol and motion code (`lib/arm_core/`) has no Arduino code in it, so it is also
-built for the PC: unit tests, and a simulator that `arm_bridge` can drive.
-
 ## Files
+
+The whole firmware is one Arduino sketch, `arm_firmware/`:
 
 | File | What it is |
 |---|---|
-| `platformio.ini` | Build setup: board build, PC unit tests, simulator |
-| `boards/octopus_f446.json` | PlatformIO board: STM32duino's generic F446ZE variant |
-| `src/board_pins.h/.cpp` | Octopus F446 pin map; turns every driver, heater and fan off at boot |
-| `src/clock_config.cpp` | Clock setup for the 12 MHz crystal (180 MHz CPU, USB from PLLSAI) |
-| `src/config.h` | Which joint is on which slot, driver type, current, microsteps |
-| `src/drivers.h/.cpp` | TMC5160 (SPI) and TMC2209 (UART) setup, enable pins |
-| `src/octopus_hal.h/.cpp` | Fast STEP/DIR pin access for the step interrupt; bring-up commands |
-| `src/main.cpp` | Startup, the 50 kHz step timer, USB serial lines to the protocol |
-| `lib/arm_core/src/motion.h/.cpp` | Segment queue and step generator (Bresenham), ramp-down on stop |
-| `lib/arm_core/src/protocol.h/.cpp` | The serial protocol: commands, checks, replies, events, watchdog |
-| `lib/arm_core/src/hal.h` | What `arm_core` needs from the hardware |
-| `src/sim/sim_main.cpp` | PC simulator: `arm_core` on a pseudo-terminal (not in the board build) |
-| `test/test_core/` | Unit tests for `arm_core`, run on the PC |
-| `tools/make_arduino_sketch.py` | Copies `src/` and `lib/arm_core/` into the Arduino sketch |
-| `arduino/arm_firmware/` | **Generated** Arduino IDE sketch: what gets flashed. Don't edit it. |
+| `arm_firmware/arm_firmware.ino` | All the firmware. Section 1 (Settings) is which joint is on which slot, driver type, current and microsteps; the comment at the top lists the other sections. |
+| `arm_firmware/build_opt.h` | Compiler flag Arduino IDE has no menu for: the board's 12 MHz crystal. Keep it next to the `.ino`. |
 
 ## Slot assignment (D-16)
 
@@ -58,48 +44,49 @@ Check all of these against the BTT Octopus manual for this board.
 - [ ] Each slot's mode jumpers match its driver: SPI for Driver0–3, UART for Driver4–5.
 - [ ] DIAG jumpers removed on the slots whose endstop inputs we use.
 - [ ] Driver orientation in the sockets (EN pin to EN): a reversed driver is destroyed.
-- [ ] `kRSense5160` in `src/config.h` (0.075 Ω, from BTT's wiki) matches the sense resistors
+- [ ] `kRSense5160` in the `.ino`'s Settings section (0.075 Ω, from BTT's wiki) matches the sense resistors
       on the TMC5160T Pro (marked R075; an R022 board needs 0.022). If the code's value is
       higher than the real one, the motors get more current than asked: 3.4x for R022.
 - [ ] The Z carriage is supported: Z falls whenever its drivers are disabled (D-31).
 
-## Build
+## Build and flash (Arduino IDE)
 
-The firmware is edited here, as a PlatformIO project, and flashed from Arduino IDE.
+### One-time setup
 
-PlatformIO (VS Code extension, or `pip install platformio` in a virtual env):
+1. Arduino IDE: File > Preferences > Additional boards manager URLs, add
+   `https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json`
+2. Boards Manager: install **STM32 MCU based boards** (by STMicroelectronics).
+3. Library Manager: install **TMCStepper** (by teemuatlut), version 0.7.3.
+4. Install **STM32CubeProgrammer** (Arduino IDE calls it to flash).
 
-```bash
-cd ~/capstone_ws/firmware
-pio run                     # board build, catches compile errors
-```
+### Tools menu
 
-After changing anything in `src/` or `lib/arm_core/`, regenerate the Arduino sketch and commit
-it with the change:
+| Setting | Value |
+|---|---|
+| Board | STM32 MCU based boards > Generic STM32F4 series |
+| Board part number | Generic F446ZETx |
+| USB support | CDC (generic 'Serial' supersede U(S)ART) |
+| Upload method | STM32CubeProgrammer (DFU), or (SWD) with an ST-Link |
 
-```bash
-python3 tools/make_arduino_sketch.py           # writes arduino/arm_firmware/
-python3 tools/make_arduino_sketch.py --check   # fails if it's out of date
-```
+The build stops with an error if the board or USB setting is wrong, or if `build_opt.h` is
+missing.
 
-## Test on the PC (no board needed)
+### Flashing over USB (DFU)
 
-```bash
-pio test -e native          # unit tests for lib/arm_core
-pio run -e sim              # the simulator
-.pio/build/sim/program --link /tmp/sim_octopus
-```
+Open `arm_firmware/arm_firmware.ino` (or copy the `arm_firmware/` folder to the computer that
+flashes), then:
 
-`picocom /tmp/sim_octopus` to type at it, or run the whole ROS side against it:
-`ros2 launch camera_path_ik preview.launch.py arm:=sim`. The `arm_bridge` tests also run
-against it when it is built (`cd src/arm_bridge && python3 -m pytest test`).
+1. Motor power off. Fit the BOOT0 jumper, connect USB-C, press reset.
+2. Sketch > Upload.
+3. Remove the BOOT0 jumper and press reset.
 
-## Flash
-
-From any computer with Arduino IDE and STM32CubeProgrammer: copy the
-`arduino/arm_firmware/` folder over and follow its
-[`README.md`](arduino/arm_firmware/README.md) (board settings, libraries, BOOT0 + DFU upload).
 The firmware starts at 0x08000000, so flashing replaces BTT's SD-card bootloader.
+
+### Testing without the board
+
+There is no PC build of the firmware. To test the ROS side without hardware, use the
+Python fake board, which follows the same protocol:
+`ros2 launch camera_path_ik preview.launch.py arm:=fake`.
 
 ## Connect from WSL
 
@@ -115,7 +102,7 @@ usbipd attach --wsl --busid <BUSID>   # every time it's plugged in
 Then in WSL it shows up as `/dev/ttyACM0`:
 
 ```bash
-pio device monitor --echo -p /dev/ttyACM0
+picocom --echo --imap lfcrlf /dev/ttyACM0   # or Arduino IDE's Serial Monitor, line ending Newline
 ```
 
 ## Commands
@@ -150,12 +137,12 @@ Joints: `THETA Z R YAW PITCH`.
 4. One motor, joint free to move or disconnected from the mechanism:
    `ENABLE`, then `SPIN YAW 3200 400` (one turn at 16 microsteps, 200-step motor).
 5. Z only with the carriage supported: `SPIN Z 400 200`. Check both motors turn the same
-   way; if not, set `invert_dir` on Z2 in `src/config.h`.
+   way; if not, set `invert_dir` on Z2 in the Settings section.
 6. The step generator, by hand: `HELLO`, `LIMITS` for all five joints (e.g.
    `LIMITS YAW -3200 3200 4000`), `SETPOS 0 0 0 0 0`, `SEG 200000 0 0 0 640 0`, `END`,
    `GO`: Yaw turns a fifth of a turn in 0.2 s, then `! DONE`. Keep hand-typed moves under
    0.25 s: the watchdog stops a move when nothing arrives from the PC for 250 ms.
 7. Then from ROS: `ros2 launch camera_path_ik preview.launch.py arm:=serial port:=/dev/ttyACM0`.
 
-The currents in `src/config.h` are low placeholders (400 mA / 300 mA) until the real motors
+The currents in the Settings section are low placeholders (400 mA / 300 mA) until the real motors
 are known (D-14).

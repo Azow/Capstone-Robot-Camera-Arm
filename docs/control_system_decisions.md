@@ -43,7 +43,7 @@ moves safely: step generation, driver setup, homing, limits, stopping.
 ```
 capstone_ws/
 ├── docs/                       <- this file and other design docs
-├── firmware/                   <- PlatformIO project for the Octopus Pro (not built by colcon)
+├── firmware/                   <- Arduino sketch for the Octopus (not built by colcon)
 └── src/                        <- ROS 2 packages (built by colcon)
     ├── arm_description_v2/
     ├── camera_path_editor/
@@ -61,7 +61,7 @@ capstone_ws/
 | ID | Decision | Status |
 |---|---|---|
 | D-01 | Custom firmware with a serial protocol (not micro-ROS, not Klipper) | Decided |
-| D-02 | Toolchain: PlatformIO + Arduino framework (STM32duino) | Decided (flashing superseded by D-34) |
+| D-02 | Toolchain: Arduino IDE + STM32duino, one sketch file (was PlatformIO) | Decided (revised 2026-11-07) |
 | D-03 | Firmware lives in `firmware/` at the repo root, outside `src/` | Decided |
 | D-04 | PC side is a Python ROS 2 node, `arm_bridge`, in `src/` | Decided |
 | D-05 | Board buffers timed move segments sent ahead by the PC | Decided |
@@ -80,13 +80,15 @@ coordinated moves of our 5 joints.
 *Consequence:* keep all communication code in one firmware module (`protocol`) so it could be
 swapped for micro-ROS later without touching motion code.
 
-**D-02: PlatformIO + Arduino (STM32duino).**
-Easiest to start with, runs in VS Code, and the `TMCStepper` library supports both the
-TMC5160 and TMC2209.
-*Consequence:* PlatformIO has no Octopus board, so `firmware/boards/octopus_f446.json` uses
-STM32duino's generic F446ZE variant with our own clock setup and pin map. Originally written
-for the H723 (Nucleo-H723ZG base, flashed from an SD card); see D-34 for the board change and
-the Arduino IDE flashing. Setup details: `firmware/README.md`.
+**D-02: Arduino IDE + STM32duino, one sketch file.**
+The Arduino framework (STM32duino) is easy to start with, and the `TMCStepper` library
+supports both the TMC5160 and TMC2209. The firmware started as a PlatformIO project with PC
+unit tests and a simulator, copied into an Arduino sketch for flashing (D-34). On 2026-11-07
+that was replaced by a single sketch, `firmware/arm_firmware/arm_firmware.ino` (plus
+`build_opt.h` for the 12 MHz crystal), edited and flashed directly in Arduino IDE.
+*Consequences:* STM32duino's generic F446ZE board with our own clock setup and pin map. No PC
+build of the firmware any more: no C++ unit tests and no `arm:=sim`; the Python fake board
+(`arm:=fake`) is the stand-in for the board. Setup details: `firmware/README.md`.
 
 **D-03 / D-04: Repo layout.** colcon only builds folders with a `package.xml`; the firmware
 needs a cross-compiler instead, so it lives next to `src/`. `arm_bridge` is Python to match
@@ -191,9 +193,7 @@ The team switched from the Octopus Pro v1.1 (STM32H723) to an Octopus with the S
 by the team's driver test sketch that ran on it. The board is flashed from a different computer
 with Arduino IDE and STM32CubeProgrammer (USB DFU with the BOOT0 jumper, or SWD).
 *Consequences:*
-- PlatformIO stays the place the firmware is edited and tested on the PC (unit tests,
-  simulator). `firmware/tools/make_arduino_sketch.py` copies it into a self-contained Arduino
-  sketch, `firmware/arduino/arm_firmware/`, which is what gets flashed.
+- The firmware is the Arduino sketch `firmware/arm_firmware/` (D-02).
 - The firmware starts at 0x08000000: flashing replaces BTT's SD-card bootloader.
 - The 50 kHz step interrupt has 3600 CPU cycles per tick at 180 MHz (was 8000 on the H723).
   ⚠ Verify on the board that a full-speed move with all 6 drivers keeps up.
@@ -604,17 +604,17 @@ Each step is testable on its own before the next. Status in brackets.
    [code written, not yet tested]
 3. **One motor spins** from a serial command (`SPIN`). [code written, not yet tested]
 4. **All axes in sync,** including both Z motors, through a timer interrupt and segment queue.
-   [code written: protocol v1 and a 50 kHz Bresenham step generator in
-   `firmware/lib/arm_core/`, unit-tested on the PC (`pio test -e native`) and run against
-   `arm_bridge` through a PC build of the same code (`pio run -e sim`,
-   `preview.launch.py arm:=sim`). Not yet tested on the board]
+   [code written: protocol v1 and a 50 kHz Bresenham step generator, in
+   `firmware/arm_firmware/arm_firmware.ino`. Unit-tested on the PC and run against
+   `arm_bridge` while the firmware was a PlatformIO project; those PC builds were removed
+   with D-02's revision. Not yet tested on the board]
 5. **Homing** with the optical switches, in the order Pitch, Yaw, Theta, Z, R.
 6. **Safety:** `STOP`, watchdog, soft limits, e-stop input.
 7. **`arm_bridge`** package and the WSL usbipd / udev setup. [`arm_bridge` and the fake
    board written and tested against each other (`preview.launch.py arm:=fake`); udev rule
    not yet written]
 8. **Connect `camera_path_ik`:** send timed points; RViz shows the real positions.
-   [done against the fake board and the firmware simulator: `ik_node` publishes
+   [done against the fake board (and the since-removed firmware simulator): `ik_node` publishes
    `/camera_path/trajectory` (D-09), the editor panel has an Arm row, and a separate
    Manual jogging window moves one joint at a time (`/arm/move_joint`)]
 
@@ -647,3 +647,4 @@ Each step is testable on its own before the next. Status in brackets.
 | 2026-11-01 | Bridge gets the whole timed path (D-09). Serial protocol v1 specified (section 4). `arm_bridge` and fake board built; sections renumbered (build order is now 5, open questions 6). |
 | 2026-11-01 | Build step 4 written (firmware `lib/arm_core`: protocol v1, step generator, ramp-down, watchdog), with PC unit tests and a simulator. Manual jogging window added. |
 | 2026-11-05 | Board changed to the STM32F446 Octopus, flashed from Arduino IDE (D-34). Pin map, clock and TMC5160 sense resistor (0.075 Ω) updated. |
+| 2026-11-07 | Firmware moved to one Arduino sketch, `firmware/arm_firmware/arm_firmware.ino` (D-02 revised); PlatformIO, the PC unit tests and the firmware simulator (`arm:=sim`) removed. |

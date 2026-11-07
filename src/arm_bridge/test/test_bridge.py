@@ -1,6 +1,5 @@
 import math
 import os
-import subprocess
 import threading
 import time
 from pathlib import Path
@@ -148,10 +147,6 @@ def test_plan_splits_long_holds(config):
 
 # ----- bridge + fake board over a pseudo-terminal ---------------------------
 
-# The firmware simulator: lib/arm_core built for the PC (firmware/, pio run -e sim).
-FIRMWARE_SIM = Path(__file__).resolve().parents[3] / 'firmware' / '.pio' / 'build' / 'sim' / 'program'
-
-
 def _wait_for(link):
     for _ in range(200):
         if os.path.exists(link):
@@ -160,26 +155,14 @@ def _wait_for(link):
     raise AssertionError(f'{link} never appeared')
 
 
-@pytest.fixture(params=['python', 'firmware'])
-def board(request, tmp_path):
-    """A board to connect to: the Python fake, or the real firmware logic built for the PC.
-    Yields (link, kind)."""
+@pytest.fixture
+def board(tmp_path):
+    """The Python fake board on a pseudo-terminal. Yields its link."""
     link = str(tmp_path / 'octopus')
-    if request.param == 'python':
-        sim = BoardSim(home_time=0.2)
-        threading.Thread(target=serve, args=(link, sim), daemon=True).start()
-        _wait_for(link)
-        yield link, 'python'
-        return
-    if not FIRMWARE_SIM.exists():
-        pytest.skip('firmware simulator not built (in firmware/: pio run -e sim)')
-    process = subprocess.Popen([str(FIRMWARE_SIM), '--link', link], stdout=subprocess.DEVNULL)
-    try:
-        _wait_for(link)
-        yield link, 'firmware'
-    finally:
-        process.terminate()
-        process.wait(timeout=5)
+    sim = BoardSim(home_time=0.2)
+    threading.Thread(target=serve, args=(link, sim), daemon=True).start()
+    _wait_for(link)
+    yield link
 
 
 def _poll_until(bridge, condition, timeout=5.0):
@@ -193,7 +176,7 @@ def _poll_until(bridge, condition, timeout=5.0):
 
 
 def test_bridge_homes_and_runs_a_path(config, board):
-    link, kind = board
+    link = board
     bridge = ArmBridge(config, link, log=lambda m: None)
     _poll_until(bridge, lambda: bridge.connected and bridge.board)
     assert bridge.board['limits'] == '1'
@@ -201,14 +184,8 @@ def test_bridge_homes_and_runs_a_path(config, board):
     ok, message = bridge.start_run([0.0], [[0.0] * 5])
     assert not ok and 'Enable' in message
     assert bridge.enable(True)[0]
-    if kind == 'python':
-        assert bridge.home()[0]
-        _poll_until(bridge, lambda: bridge.message == 'Homed' and bridge.board.get('homed') == '1')
-    else:
-        # The firmware can't home yet (build step 5).
-        ok, message = bridge.home()
-        assert not ok and 'cannot home yet' in message
-        assert bridge.assume_homed()[0]
+    assert bridge.home()[0]
+    _poll_until(bridge, lambda: bridge.message == 'Homed' and bridge.board.get('homed') == '1')
 
     # A slow sweep of Theta and Pitch, sampled every 20 ms like camera_path_ik.
     times = [i * 0.02 for i in range(51)]
@@ -222,7 +199,7 @@ def test_bridge_homes_and_runs_a_path(config, board):
 
 
 def test_bridge_stop_mid_run(config, board):
-    link, _ = board
+    link = board
     bridge = ArmBridge(config, link, log=lambda m: None)
     _poll_until(bridge, lambda: bridge.connected and bridge.board)
     bridge.enable(True)
@@ -237,7 +214,7 @@ def test_bridge_stop_mid_run(config, board):
 
 
 def test_bridge_jogs_one_joint(config, board):
-    link, _ = board
+    link = board
     bridge = ArmBridge(config, link, log=lambda m: None)
     _poll_until(bridge, lambda: bridge.connected and bridge.board)
     bridge.enable(True)
@@ -322,8 +299,8 @@ def test_bridge_reports_silent_drivers_but_still_enables(config, tmp_path):
 
 
 def test_bridge_enables_boards_without_drivers(config, board):
-    """The fake board and the firmware simulator answer DRIVERS with BAD_CMD."""
-    link, _ = board
+    """The fake board answers DRIVERS with BAD_CMD."""
+    link = board
     bridge = ArmBridge(config, link, log=lambda m: None)
     _poll_until(bridge, lambda: bridge.connected and bridge.board)
     assert bridge.enable(True) == (True, 'OK')

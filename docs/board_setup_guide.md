@@ -31,10 +31,8 @@ They can be the same Windows machine. Background and design decisions:
 4. **Tools > Manage Libraries**: install **TMCStepper** (by teemuatlut), version **0.7.3**.
 
 ### A2. Open the sketch
-Open `firmware/arduino/arm_firmware/arm_firmware.ino` from the repo.
-
-Don't edit the files in that folder: they're generated from `firmware/src/` and
-`firmware/lib/arm_core/`.
+Open `firmware/arm_firmware/arm_firmware.ino` from the repo. The whole firmware is that one
+file; `build_opt.h` next to it must stay in the same folder.
 
 ### A3. Tools menu settings
 
@@ -156,7 +154,7 @@ The solid arm in RViz is where the board is. The see-through ghost is the previe
 | Arm row says **Not connected** | miniterm still open, board not attached, or wrong `port:=`. |
 | `INFO` clock isn't 180000000 | Tell the firmware team (clock setup issue). |
 | `DRIVERS` says `NO ANSWER` | Motor power off, wrong mode jumpers under the driver (SPI for Driver0–3, UART for Driver4–5), or the driver isn't seated. |
-| A joint moves the wrong way | Note which one. Firmware fix: `invert_dir` in `firmware/src/config.h`, then re-flash. |
+| A joint moves the wrong way | Note which one. Firmware fix: `invert_dir` in the Settings section of `firmware/arm_firmware/arm_firmware.ino`, then re-flash. |
 | A joint moves the wrong distance | `steps_per_unit` in `src/arm_bridge/config/arm.yaml` (placeholders for now). Change it and relaunch; no re-flash needed. |
 | The arm stops mid-move | The watchdog stops the arm if the PC goes quiet for 250 ms (a USB hiccup). Clear fault, then Set home here again. |
 | Arduino IDE can't find the board to upload | BOOT0 fitted and reset pressed? Board not attached to WSL (`usbipd detach --hardware-id 0483:5740`)? |

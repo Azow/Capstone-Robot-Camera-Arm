@@ -198,8 +198,8 @@ class ArmBridge:
     def configure_drivers(self):
         """Send DRIVERS: write each driver's current and microsteps. The drivers forget them
         whenever motor power goes off, and an unconfigured TMC5160 doesn't move its motor, so
-        this runs before every ENABLE. Boards with no drivers to set up (the fake board, the
-        firmware simulator) don't know DRIVERS; that's fine. Drivers that don't answer are
+        this runs before every ENABLE. Boards with no drivers to set up (the fake board) don't
+        know DRIVERS; that's fine. Drivers that don't answer are
         reported but don't block ENABLE, so a bench setup with some slots empty still works."""
         if not self.link:
             return False, 'Not connected to the board'
