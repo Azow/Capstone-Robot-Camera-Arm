@@ -117,10 +117,13 @@ def parse_line(line):
         raise ProtocolError(f'not a reply: {line!r}')
     seq, kind = tokens[0], tokens[1]
     if kind == 'OK':
-        values = _pairs(tokens[2:])
+        # Bare words are kept as the message rather than refused: the bring-up commands
+        # add some (DRIVERS replies "OK q=64 all drivers answered").
+        values = _pairs(t for t in tokens[2:] if '=' in t)
         if 'q' not in values:
             raise ProtocolError(f'reply without q=: {line!r}')
-        return Reply(seq, True, int(values.pop('q')), values=values)
+        return Reply(seq, True, int(values.pop('q')), values=values,
+                     message=' '.join(t for t in tokens[2:] if '=' not in t))
     if kind == 'ERR':
         if len(tokens) < 4 or not tokens[3].startswith('q='):
             raise ProtocolError(f'error reply without q=: {line!r}')

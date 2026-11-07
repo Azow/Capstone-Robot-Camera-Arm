@@ -255,3 +255,77 @@ def test_bridge_jogs_one_joint(config, board):
     ok, message = bridge.move_joint(1, 0.6)   # Z above its 0.45 m limit
     assert not ok and 'outside its limits' in message
     assert not bridge.move_joint(0, 0.1, speed_scale=0)[0]
+
+
+# ----- driver setup (DRIVERS before ENABLE) -----------------------------------
+
+def test_ok_reply_keeps_bare_words_as_message():
+    reply = p.parse_line('5 OK q=64 all drivers answered\n')
+    assert (reply.seq, reply.ok, reply.free, reply.values) == ('5', True, 64, {})
+    assert reply.message == 'all drivers answered'
+
+
+class _DriverBoard(BoardSim):
+    """The fake board plus DRIVERS, replying like the Octopus firmware: one DRIVER line per
+    driver, then OK, or ERR NO_ANSWER if any driver is silent."""
+
+    def __init__(self, answering, **kwargs):
+        super().__init__(**kwargs)
+        self.answering = answering
+        self.commands = []
+
+    def handle(self, line, now):
+        parsed = p.parse_request(line)
+        if parsed:
+            self.commands.append(parsed[1])
+        if not parsed or parsed[1] != 'DRIVERS':
+            return super().handle(line, now)
+        seq = parsed[0]
+        silent = 'NO ANSWER (motor power off, wrong jumpers, or wrong slot?)'
+        out = [f'DRIVER {name} slot=0 type=TMC5160 version=0x30 {"ok" if ok else silent}\n'
+               for name, ok in self.answering.items()]
+        if all(self.answering.values()):
+            out.append(f'{seq} OK q={self._free()} all drivers answered\n')
+        else:
+            out.append(f'{seq} ERR NO_ANSWER q={self._free()} some drivers did not answer\n')
+        return out
+
+
+def _serve_sim(sim, tmp_path):
+    link = str(tmp_path / 'octopus')
+    threading.Thread(target=serve, args=(link, sim), daemon=True).start()
+    _wait_for(link)
+    return link
+
+
+def test_bridge_configures_drivers_before_enable(config, tmp_path):
+    sim = _DriverBoard({'THETA': True, 'Z1': True})
+    bridge = ArmBridge(config, _serve_sim(sim, tmp_path), log=lambda m: None)
+    _poll_until(bridge, lambda: bridge.connected and bridge.board)
+    assert bridge.enable(True) == (True, 'OK')
+    assert sim.commands.index('DRIVERS') == sim.commands.index('ENABLE') - 1
+    assert bridge.connected and sim.enabled
+
+    # Off then on again (as after motor power was cycled): configured again.
+    assert bridge.enable(False)[0]
+    assert bridge.enable(True)[0]
+    assert sim.commands.count('DRIVERS') == 2
+
+
+def test_bridge_reports_silent_drivers_but_still_enables(config, tmp_path):
+    sim = _DriverBoard({'THETA': True, 'Z1': False, 'R': False})
+    bridge = ArmBridge(config, _serve_sim(sim, tmp_path), log=lambda m: None)
+    _poll_until(bridge, lambda: bridge.connected and bridge.board)
+    assert bridge.enable(True)[0]
+    assert sim.enabled
+    assert 'Z1, R' in bridge.message and 'THETA' not in bridge.message
+
+
+def test_bridge_enables_boards_without_drivers(config, board):
+    """The fake board and the firmware simulator answer DRIVERS with BAD_CMD."""
+    link, _ = board
+    bridge = ArmBridge(config, link, log=lambda m: None)
+    _poll_until(bridge, lambda: bridge.connected and bridge.board)
+    assert bridge.enable(True) == (True, 'OK')
+    bridge.poll()
+    assert bridge.board.get('enabled') == '1'
