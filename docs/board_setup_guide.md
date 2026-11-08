@@ -12,7 +12,7 @@ They can be the same Windows machine. Background and design decisions:
 `docs/control_system_decisions.md`. More firmware detail: `firmware/README.md`.
 
 > **Safety, read first**
-> - **Yaw, Pitch and Focus (TMC2209 drivers, Driver4–6) must be on 24 V, never 48 V.** A TMC2209 on 48 V is destroyed.
+> - **Yaw, Pitch and Focus (TMC2209 drivers, Driver1–3) must be on 24 V, never 48 V.** A TMC2209 on 48 V is destroyed.
 > - A driver plugged in backwards is destroyed. Check orientation before power-on.
 > - **Z drops when the motors are off** unless the carriage is supported.
 > - Homing and the e-stop aren't written yet. Keep a hand on the motor power switch.
@@ -153,7 +153,7 @@ The solid arm in RViz is where the board is. The see-through ghost is the previe
 | `Permission denied` on the port | B3 not done, or WSL not restarted since. |
 | Arm row says **Not connected** | miniterm still open, board not attached, or wrong `port:=`. |
 | `INFO` clock isn't 180000000 | Tell the firmware team (clock setup issue). |
-| `DRIVERS` says `NO ANSWER` | Motor power off, wrong mode jumpers under the driver (SPI for Driver0–3, UART for Driver4–6), or the driver isn't seated. |
+| `DRIVERS` says `NO ANSWER` | Motor power off, wrong mode jumpers under the driver (SPI for Driver4–7, UART for Driver1–3), or the driver isn't seated. |
 | A joint moves the wrong way | Note which one. Firmware fix: `invert_dir` in the Settings section of `firmware/arm_firmware/arm_firmware.ino`, then re-flash. |
 | A joint moves the wrong distance | `steps_per_unit` in `src/arm_bridge/config/arm.yaml` (placeholders for now). Change it and relaunch; no re-flash needed. |
 | The arm stops mid-move | The watchdog stops the arm if the PC goes quiet for 250 ms (a USB hiccup). Clear fault, then Set home here again. |

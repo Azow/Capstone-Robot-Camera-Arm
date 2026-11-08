@@ -23,28 +23,28 @@ The whole firmware is one Arduino sketch, `arm_firmware/`:
 
 | Slot | Joint | Driver | Supply | Mode jumpers | Endstop |
 |---|---|---|---|---|---|
-| Driver0 | Theta | TMC5160T Pro | 48 V | SPI | STOP_0 |
-| Driver1 | Z1 | TMC5160T Pro | 48 V | SPI | STOP_1 (the Z switch) |
-| Driver2 | Z2 | TMC5160T Pro | 48 V | SPI | none |
-| Driver3 | R | TMC5160T Pro | 48 V | SPI | STOP_3 |
-| Driver4 | Yaw | TMC2209 | **24 V** | UART | STOP_4 |
-| Driver5 | Pitch | TMC2209 | **24 V** | UART | STOP_5 |
-| Driver6 | Focus | TMC2209 | **24 V** | UART | STOP_6 = its DIAG (stall), jumper fitted |
-| Driver7 | spare | | | | STOP_2, 7 spare (e-stop later) |
+| Driver0 | spare | | | | STOP_0 spare (e-stop later) |
+| Driver1 | Focus | TMC2209 | **24 V** | UART | STOP_1 = its DIAG (stall), jumper fitted |
+| Driver2 | Pitch | TMC2209 | **24 V** | UART | STOP_2 |
+| Driver3 | Yaw | TMC2209 | **24 V** | UART | STOP_3 |
+| Driver4 | R | TMC5160T Pro | 48 V | SPI | STOP_4 |
+| Driver5 | Z2 | TMC5160T Pro | 48 V | SPI | none (STOP_5 spare) |
+| Driver6 | Z1 | TMC5160T Pro | 48 V | SPI | STOP_6 (the Z switch) |
+| Driver7 | Theta | TMC5160T Pro | 48 V | SPI | STOP_7 (DIR is PA14 = SWD clock) |
 
 ## Before the first power-on
 
 Check all of these against the BTT Octopus manual for this board.
 
-- [ ] **Driver4, 5 and 6 (TMC2209) are powered from 24 V, NOT the 48 V motor input.**
+- [ ] **Driver1, 2 and 3 (TMC2209) are powered from 24 V, NOT the 48 V motor input.**
       A TMC2209 on 48 V is destroyed.
 - [ ] This board takes 48 V motor power at all (the Octopus Pro has a 60 V `MOTOR_POWER`
       input; the plain Octopus V1.1 is limited to about 28 V). See D-34.
-- [ ] Driver0–3 (TMC5160T Pro) are jumpered to the 48 V motor-power input, and the
+- [ ] Driver4–7 (TMC5160T Pro) are jumpered to the 48 V motor-power input, and the
       TMC5160T Pro is rated for 48 V with margin.
-- [ ] Each slot's mode jumpers match its driver: SPI for Driver0–3, UART for Driver4–6.
-- [ ] DIAG jumpers removed on the slots whose endstop inputs have optical switches (Driver0,
-      1, 3, 4, 5). Driver6 (Focus) keeps its DIAG jumper: focus will home by stall (D-36).
+- [ ] Each slot's mode jumpers match its driver: SPI for Driver4–7, UART for Driver1–3.
+- [ ] DIAG jumpers removed on every slot except Driver1 (Focus), which keeps its DIAG
+      jumper: focus will home by stall (D-36).
 - [ ] Driver orientation in the sockets (EN pin to EN): a reversed driver is destroyed.
 - [ ] `kRSense5160` in the `.ino`'s Settings section (0.075 Ω, from BTT's wiki) matches the sense resistors
       on the TMC5160T Pro (marked R075; an R022 board needs 0.022). If the code's value is
@@ -127,7 +127,7 @@ Bring-up commands, only while IDLE:
 
 `ENABLE` / `DISABLE` switch **all** drivers. **Z falls when disabled unless supported.**
 
-Joints: `THETA Z R YAW PITCH FOCUS` (FOCUS is the lens focus motor on Driver6, D-35).
+Joints: `THETA Z R YAW PITCH FOCUS` (FOCUS is the lens focus motor on Driver1, D-35).
 
 ## First test, in order
 
@@ -146,5 +146,4 @@ Joints: `THETA Z R YAW PITCH FOCUS` (FOCUS is the lens focus motor on Driver6, D
    0.25 s: the watchdog stops a move when nothing arrives from the PC for 250 ms.
 7. Then from ROS: `ros2 launch camera_path_ik preview.launch.py arm:=serial port:=/dev/ttyACM0`.
 
-The currents in the Settings section are low placeholders (400 mA / 300 mA / 200 mA focus) until the real motors
-are known (D-14).
+The currents in the Settings section are about 70-75% of each motor's rated current (D-14).

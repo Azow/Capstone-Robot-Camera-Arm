@@ -183,7 +183,7 @@ any USB pause would empty the board's queue.
 | D-13 | Power: 48 V for Theta/Z1/Z2/R, 24 V for Yaw/Pitch/Focus | Decided |
 | D-14 | Motor models, currents and step angles | Open (later) |
 | D-15 | Transmission per joint (gear ratio / belt / leadscrew) | Partly decided (Yaw, Pitch, Focus) |
-| D-16 | Driver slot assignment: Driver0–3 Theta/Z1/Z2/R, Driver4–6 Yaw/Pitch/Focus | Decided |
+| D-16 | Driver slot assignment: Driver1–3 Focus/Pitch/Yaw, Driver4–7 R/Z2/Z1/Theta | Decided |
 | D-17 | Z is driven by a belt and pulley system | Decided |
 | D-34 | Board: BTT Octopus with the STM32F446ZE; flashed from Arduino IDE with STM32CubeProgrammer | Decided |
 | D-35 | Lens focus is a sixth motor axis, set from the camera-to-focus-point distance | Decided |
@@ -235,17 +235,17 @@ decelerating push voltage back up onto the supply.
 The main 24 V input also powers the board's logic (MCU), so cutting the 24 V supply resets
 the board and loses its homed position. Matters for the e-stop (D-30).
 
-**D-14 / D-15: Motors and transmissions.** Z, Yaw, Pitch and Focus motors chosen
-2026-11-07; Theta and R motors still to be chosen. Run currents (in the firmware sketch) are
+**D-14 / D-15: Motors and transmissions.** All motors chosen 2026-11-07 (Theta and R
+transmissions still TBD). Run currents (in the firmware sketch) are
 about 70-75% of rated; hold current is half of run.
 ⚠ Verify: the NEMA 23's 3.0 A is listed by resellers as "peak"; if it is the amplitude rather
 than RMS, 2.0 A RMS is near its limit, so watch motor temperature.
 
 | Joint | Motor | Rated current | Step angle | Microsteps | Transmission | Steps per unit |
 |---|---|---|---|---|---|---|
-| Theta | TBD | TBD | TBD | 16 | TBD | TBD per rad |
+| Theta | StepperOnline 23HS22-2804S NEMA 23, 1.26 N·m (178 oz-in), 0.9 Ω, 2.5 mH | 2.8 A (run 2.0 A RMS) | 1.8° | 16 | TBD (arm.yaml guesses 5:1) | TBD per rad |
 | Z1 / Z2 | RatRig / LDO NEMA 23 (57STH86-3004A), 345 oz-in | 3.0 A (run 2.0 A RMS) | 1.8° | 16 | TBD (arm.yaml guesses GT2, 20-tooth pulley) | TBD per m |
-| R | TBD | TBD | TBD | 16 | TBD | TBD per m |
+| R | Lin Engineering X5718-077-20 NEMA 23, 467 oz-in, 2.3 Ω, bipolar | 2.0 A (run 1.5 A RMS) | 1.8° | 16 | TBD (arm.yaml guesses GT2, 20-tooth pulley) | TBD per m |
 | Yaw | 17HS4401 NEMA 17, 40 N·cm | 1.5 A (run 1.1 A RMS) | 1.8° | 16 | GT3 belt: 20-tooth motor pulley (McMaster 3764N128) to a 277-tooth ring, 13.85:1 | 7053.7 per rad |
 | Pitch | 2x 17HS4401 NEMA 17 (one per side) | 1.5 A (run 1.1 A RMS) | 1.8° | 16 | GT2 belts: 16-tooth motor pulleys (McMaster 3684N11) to 120-tooth pulleys on the shaft, 7.5:1 | 3819.7 per rad |
 | Focus | NEMA 14 (Amazon B0FHHS5T9M), 28.2 mm body, 12 N·cm | 0.6 A (run 0.45 A RMS) | 1.8° | 16 | 0.8 module gears: 60-tooth brass (McMaster 2664N467) to the lens gear, ~108 teeth (estimated), ~1.8:1 | ~916.7 per rad of the ring |
@@ -264,7 +264,7 @@ The camera has a manual cine prime: a 7Artisans "Dream" T1.5 (the CAD shows the 
 35/50/75 mm all have a 300° focus throw with hard stops and 0.8 module gears). A NEMA 14 on
 the follow-focus mount turns the focus ring through a gear. There is no zoom.
 *Consequences:*
-- Focus is joint 6, `FOCUS`, on Driver6 (TMC2209, 24 V). Protocol v2 (section 4) adds it to
+- Focus is joint 6, `FOCUS`, on Driver1 (TMC2209, 24 V). Protocol v2 (section 4) adds it to
   every position list.
 - The PC owns the lens model, like every other unit conversion (D-06):
   `camera_path_ik/config/lens.yaml` turns camera-to-focus-point distance into a ring angle
@@ -302,22 +302,24 @@ Priorities: speed and torque first, then smoothness and noise (vibration shows i
 - These match each chip's power-up default, so nothing changes from earlier firmware except
   interpolation, which is now set explicitly.
 
-**D-16: Slot assignment.** Coded in `firmware/src/config.h`. Pins from Klipper's and BTT's
-`generic-bigtreetech-octopus-pro-v1.1.cfg` (they agree), in `firmware/src/board_pins.h`.
+**D-16: Slot assignment.** Coded in Section 1 of `firmware/arm_firmware/arm_firmware.ino`
+(`kDrivers`, `kJoints`), pins in its Section 2. Each switch is on the STOP_n that matches its
+joint's slot.
 
 | Slot | Joint | Driver | Supply | Mode jumper | Homing input |
 |---|---|---|---|---|---|
-| Driver0 | Theta | TMC5160T Pro | 48 V | SPI | STOP_0 (PG6) |
-| Driver1 | Z1 | TMC5160T Pro | 48 V | SPI | STOP_1 (PG9), the one Z switch |
-| Driver2 | Z2 | TMC5160T Pro | 48 V | SPI | none (follows Z1) |
-| Driver3 | R | TMC5160T Pro | 48 V | SPI | STOP_3 (PG11) |
-| Driver4 | Yaw | TMC2209 | 24 V | UART | STOP_4 (PG12) |
-| Driver5 | Pitch | TMC2209 | 24 V | UART | STOP_5 (PG13) |
-| Driver6 | Focus | TMC2209 | 24 V | UART | STOP_6 (PG14) = this driver's DIAG (stall), jumper **fitted** (D-36) |
-| Driver7 | spare | | | | STOP_2, 7 spare (e-stop later) |
+| Driver0 | spare | | | | STOP_0 (PG6) spare (e-stop later) |
+| Driver1 | Focus | TMC2209 | 24 V | UART | STOP_1 (PG9) = this driver's DIAG (stall), jumper **fitted** (D-36) |
+| Driver2 | Pitch | TMC2209 | 24 V | UART | STOP_2 (PG10) |
+| Driver3 | Yaw | TMC2209 | 24 V | UART | STOP_3 (PG11) |
+| Driver4 | R | TMC5160T Pro | 48 V | SPI | STOP_4 (PG12) |
+| Driver5 | Z2 | TMC5160T Pro | 48 V | SPI | none (follows Z1; STOP_5 spare) |
+| Driver6 | Z1 | TMC5160T Pro | 48 V | SPI | STOP_6 (PG14), the one Z switch |
+| Driver7 | Theta | TMC5160T Pro | 48 V | SPI | STOP_7 (PG15) |
 
-The 48 V drivers are grouped on Driver0–3 and the 24 V drivers on Driver4–6, so the power
-jumpers are easy to check at a glance.
+The 24 V drivers are grouped on Driver1–3 and the 48 V drivers on Driver4–7, so the power
+jumpers are easy to check at a glance. Driver7's DIR pin is PA14, the SWD clock: with THETA
+there, flash over SWD with "connect under reset" (or use USB DFU).
 
 > Use the **Octopus V1.1 / Pro V1.0 (F446)** pin map (D-34), not the Pro v1.1 (H723) one:
 > e.g. Driver3's enable pin is PA0 here, and PA2 (the Pro v1.1's Driver3 enable) is the HE0
@@ -470,7 +472,7 @@ optical gate on the ring. Focus homes by driving toward infinity at low current 
 TMC2209's StallGuard4 trips; that stop is ring angle 0.
 *Consequences:*
 - Exception to D-20 (switches on every axis), for this axis only.
-- Driver6's DIAG jumper stays **fitted** so the stall output reaches STOP_6 as an input
+- Driver1's DIAG jumper stays **fitted** so the stall output reaches STOP_1 as an input
   (D-29's polling concern doesn't apply). The TMC2209 is already in StealthChop, which
   StallGuard4 needs.
 - Needs tuning on the real lens (`SGTHRS`, `TCOOLTHRS`, homing speed and current); ignore the
@@ -721,3 +723,4 @@ Each step is testable on its own before the next. Status in brackets.
 | 2026-11-07 | Lens focus added as a sixth axis, `FOCUS` on Driver6 (D-35); serial protocol v2. Focus homing by stall detection proposed (D-36). |
 | 2026-11-07 | Microstepping and chopper modes recorded (D-37); interpolation set explicitly in the firmware. |
 | 2026-11-07 | Yaw, Pitch and Focus transmissions recorded from the CAD and McMaster parts (D-15); `arm.yaml` updated. |
+| 2026-11-07 | Slots reassigned (D-16): Focus/Pitch/Yaw on Driver1–3, R/Z2/Z1/Theta on Driver4–7; endstops moved to match each slot (Focus's stall input is now STOP_1). |

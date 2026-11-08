@@ -5,7 +5,9 @@
 #   YAW     17HS4401 NEMA 17, 1.5 A
 #   PITCH   17HS4401 NEMA 17, 1.5 A (two in the CAD, one per side)
 #   FOCUS   NEMA 14, 0.6 A
-#   THETA, R  NOT CHOSEN YET: their numbers below assume 1.8 deg and guessed transmissions.
+#   THETA   StepperOnline 23HS22-2804S NEMA 23, 1.26 N*m, 2.8 A
+#   R       Lin Engineering X5718-077-20 NEMA 23, 467 oz-in, 2.0 A
+#   THETA and R transmissions are still guessed (see their entries below).
 # Change them here and restart arm_bridge; no re-flashing needed (but a different step
 # angle or microstep setting must match the sketch).
 #
@@ -25,14 +27,14 @@
 # attached, and max_velocity raised to just under the board's 40000 steps/s cap.
 # Restore with: git checkout src/arm_bridge/config/arm.yaml
 joints:
-  # MOTOR TBD. 200 steps/rev x 16 microsteps x 5:1 gearbox / 2 pi (all guessed)
+  # 23HS22-2804S NEMA 23 (1.8 deg). 200 steps/rev x 16 microsteps x 5:1 / 2 pi: the 5:1 is GUESSED.
   - {name: THETA, urdf_name: Theta, steps_per_unit: 2546.48, home: 0.0,
      min: -1000.0, max: 1000.0, max_velocity: 14.0, max_accel: 2.0}
   # NEMA 23 (1.8 deg). 200 x 16 / 0.040 m per rev: GT2 belt, 20-tooth pulley is still a GUESS.
   # Rests at the bottom (D-27).
   - {name: Z, urdf_name: Z, steps_per_unit: 80000.0, home: -0.3,
      min: -1000.0, max: 1000.0, max_velocity: 0.45, max_accel: 0.3}
-  # MOTOR TBD. Same 1.8 deg + belt guess as Z. Rests fully retracted (D-27).
+  # Lin X5718-077-20 NEMA 23 (1.8 deg). Same belt GUESS as Z. Rests fully retracted (D-27).
   - {name: R, urdf_name: R, steps_per_unit: 80000.0, home: 0.0,
      min: -1000.0, max: 1000.0, max_velocity: 0.45, max_accel: 0.3}
   # 17HS4401 NEMA 17 (1.8 deg). From the CAD + McMaster parts (2026-11-07). 200 x 16 x 277/20 / 2 pi:

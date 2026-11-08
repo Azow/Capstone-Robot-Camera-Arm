@@ -46,8 +46,7 @@
 // 1. Settings
 // =============================================================================================
 // Decisions D-10, D-12, D-14, D-16, D-35. Currents follow the motors in D-14: about 70-75% of
-// each motor's rated current (RMS). THETA and R motors aren't chosen yet: their currents are
-// low bring-up placeholders.
+// each motor's rated current (RMS).
 
 const char* const kFirmwareVersion = "0.4";
 
@@ -72,16 +71,19 @@ struct DriverConfig {
   uint16_t microsteps;
 };
 
+// Each joint's switch is on the STOP_n that matches its driver slot (Z: Z1's slot), so the
+// DIAG jumper rule is simple: remove it on every slot except FOCUS's. Keep this in step with
+// kDrivers below.
 const JointConfig kJoints[kJointCount] = {
-    {"THETA", 0},
-    {"Z", 1},
-    {"R", 3},
-    {"YAW", 4},
-    {"PITCH", 5},
+    {"THETA", 7},
+    {"Z", 6},
+    {"R", 4},
+    {"YAW", 3},
+    {"PITCH", 2},
     // No optical switch on focus: it will home into the lens's infinity stop by stall
-    // detection (D-36). With Driver6's DIAG jumper fitted, STOP_6 reads the driver's stall
-    // output, so ENDSTOPS shows FOCUS=1 while stalled.
-    {"FOCUS", 6},
+    // detection (D-36). With Driver1's DIAG jumper fitted, STOP_1 reads the driver's stall
+    // output, so ENDSTOPS shows FOCUS=1 while stalled. Must equal FOCUS's driver slot.
+    {"FOCUS", 1},
 };
 
 // Z1 and Z2 always get the same steps (D-12). Their settings must match; if the two motors
@@ -89,24 +91,28 @@ const JointConfig kJoints[kJointCount] = {
 // All motors are 1.8 deg (200 steps/rev). Hold current is half the run current (TMCStepper's
 // default hold multiplier).
 const DriverConfig kDrivers[] = {
-    // Motor TBD: placeholder current.
-    {"THETA", THETA, 0, DriverType::TMC5160, false, 400, 16},
+    // StepperOnline 23HS22-2804S NEMA 23, 1.26 N*m (178 oz-in), 2.8 A rated, 0.9 ohm, 2.5 mH.
+    // 2000 mA = 71% of rated.
+    // Driver7's DIR pin is PA14, the SWD clock: once the firmware runs, flash over SWD with
+    // "connect under reset" (or use USB DFU).
+    {"THETA", THETA, 7, DriverType::TMC5160, false, 2000, 16},
     // RatRig / LDO 57STH86-3004A NEMA 23, 345 oz-in, 3.0 A rated. The 5160's 0.075 ohm sense
     // resistor tops out near 2.4 A RMS.
-    {"Z1", Z, 1, DriverType::TMC5160, false, 2000, 16},
-    {"Z2", Z, 2, DriverType::TMC5160, false, 2000, 16},
-    // Motor TBD: placeholder current.
-    {"R", R, 3, DriverType::TMC5160, false, 400, 16},
+    {"Z1", Z, 6, DriverType::TMC5160, false, 2000, 16},
+    {"Z2", Z, 5, DriverType::TMC5160, false, 2000, 16},
+    // Lin Engineering X5718-077-20 NEMA 23, 467 oz-in, 2.0 A rated, 2.3 ohm, bipolar 4-lead.
+    // 1500 mA = 75% of rated.
+    {"R", R, 4, DriverType::TMC5160, false, 1500, 16},
     // 17HS4401 NEMA 17, 40 N*cm, 1.5 A rated.
-    {"YAW", YAW, 4, DriverType::TMC2209, false, 1100, 16},
+    {"YAW", YAW, 3, DriverType::TMC2209, false, 1100, 16},
     // 17HS4401 NEMA 17, 1.5 A rated. The CAD has two pitch motors but this is one driver: if
     // both are wired to it in parallel, each gets only half of this current.
-    {"PITCH", PITCH, 5, DriverType::TMC2209, false, 1100, 16},
+    {"PITCH", PITCH, 2, DriverType::TMC2209, false, 1100, 16},
     // NEMA 14 on the follow-focus mount (Amazon B0FHHS5T9M): 35x35x28.2 mm, 12 N*cm,
     // 0.6 A rated, 4.5 ohm, 6.5 mH. 450 mA = 75% of rated.
     // Slot must be on the 24 V motor supply (TMC2209).
     // Flip invert_dir if + steps turn the ring toward infinity instead of close focus.
-    {"FOCUS", FOCUS, 6, DriverType::TMC2209, false, 450, 16},
+    {"FOCUS", FOCUS, 1, DriverType::TMC2209, false, 450, 16},
 };
 const size_t kDriverCount = sizeof(kDrivers) / sizeof(kDrivers[0]);
 
