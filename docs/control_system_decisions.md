@@ -180,10 +180,10 @@ any USB pause would empty the board's queue.
 | D-10 | Driver per joint: TMC5160T Pro on Theta, Z1, Z2, R; TMC2209 on Yaw, Pitch, Focus | Decided |
 | D-11 | All drivers plug directly into Octopus driver slots | Decided |
 | D-12 | Z axis is driven by 2 motors on 2 separate drivers | Decided |
-| D-13 | Power: 48 V for Theta/Z1/Z2/R, 24 V for Yaw/Pitch/Focus | Decided |
+| D-13 | Power: every driver on 24 V (was 48 V for Theta/Z1/Z2/R) | Decided |
 | D-14 | Motor models, currents and step angles | Open (later) |
 | D-15 | Transmission per joint (gear ratio / belt / leadscrew) | Partly decided (Yaw, Pitch, Focus) |
-| D-16 | Driver slot assignment: Driver1–3 Focus/Pitch/Yaw, Driver4–7 R/Z2/Z1/Theta | Decided |
+| D-16 | Driver slot assignment: Driver1–3 Pitch/Focus/Yaw, Driver4–7 R/Z2/Z1/Theta | Decided |
 | D-17 | Z is driven by a belt and pulley system | Decided |
 | D-34 | Board: BTT Octopus with the STM32F446ZE; flashed from Arduino IDE with STM32CubeProgrammer | Decided |
 | D-35 | Lens focus is a sixth motor axis, set from the camera-to-focus-point distance | Decided |
@@ -199,8 +199,7 @@ with Arduino IDE and STM32CubeProgrammer (USB DFU with the BOOT0 jumper, or SWD)
 - The firmware starts at 0x08000000: flashing replaces BTT's SD-card bootloader.
 - The 50 kHz step interrupt has 3600 CPU cycles per tick at 180 MHz (was 8000 on the H723).
   ⚠ Verify on the board that a full-speed move with all 7 drivers keeps up.
-- ⚠ Verify: whether this board takes 48 V motor power (D-13). The Octopus Pro has a 60 V
-  `MOTOR_POWER` input; the plain Octopus V1.1 is limited to about 28 V.
+- Motor power is 24 V (D-13), within the plain Octopus V1.1's limit of about 28 V.
 
 **D-10 / D-11: Drivers.**
 TMC5160s are configured over SPI, TMC2209s over single-wire UART, both through the Octopus
@@ -217,20 +216,21 @@ To ROS it is still a single `Z` joint.
 - If one motor skips steps, the two sides go out of line. The carriage is stiff enough to
   keep itself aligned, so we use a single Z switch (see D-21).
 - Both Z drivers must use the same current and microstep settings.
-- See D-13: both are on 48 V.
+- See D-13: both are on 24 V.
 
-**D-13: Mixed voltage.**
-⚠ Verify: the Octopus Pro has a separate `MOTOR_POWER` input (up to 60 V) next to the main
-power input, and a jumper per driver slot selecting which one powers that driver.
-- Theta, Z1, Z2, R slots → jumper to `MOTOR_POWER` (48 V).
-- Yaw, Pitch slots → jumper to main power (24 V).
+**D-13: One 24 V supply.**
+Every driver runs from 24 V. This replaced the earlier plan of 48 V for Theta/Z1/Z2/R and
+24 V for Yaw/Pitch/Focus.
+*Consequences:*
+- No per-slot voltage to get wrong, but the NEMA 23s (Theta, Z, R) lose torque at a lower
+  speed than they would on 48 V: expect lower top speeds before they skip steps.
+- Supply sizing: about 0.6 A holding, about 2 A in normal running, up to about 7.5 A for
+  fast, loaded moves on every axis. A 24 V, 10 A (240 W) supply has headroom.
 
-> **⚠ Critical:** the TMC2209 is rated for about 29 V maximum. A TMC2209 in a slot jumpered
-> to 48 V will be destroyed. Check every slot jumper before first power-on, and label the
-> board.
-
-⚠ Verify: the TMC5160T Pro's voltage rating. 48 V needs margin above it, because motors
-decelerating push voltage back up onto the supply.
+> **⚠ Critical:** the TMC2209 is rated for about 29 V maximum, and it shares the rail with
+> the NEMA 23s, which push voltage back onto the supply when they slow down. Put a large
+> capacitor (≥1000 µF, ≥35 V) across the motor supply, and keep accelerations gentle on a
+> bench supply (it can't absorb that energy).
 
 The main 24 V input also powers the board's logic (MCU), so cutting the 24 V supply resets
 the board and loses its homed position. Matters for the e-stop (D-30).
@@ -264,7 +264,7 @@ The camera has a manual cine prime: a 7Artisans "Dream" T1.5 (the CAD shows the 
 35/50/75 mm all have a 300° focus throw with hard stops and 0.8 module gears). A NEMA 14 on
 the follow-focus mount turns the focus ring through a gear. There is no zoom.
 *Consequences:*
-- Focus is joint 6, `FOCUS`, on Driver1 (TMC2209, 24 V). Protocol v2 (section 4) adds it to
+- Focus is joint 6, `FOCUS`, on Driver2 (TMC2209, 24 V). Protocol v2 (section 4) adds it to
   every position list.
 - The PC owns the lens model, like every other unit conversion (D-06):
   `camera_path_ik/config/lens.yaml` turns camera-to-focus-point distance into a ring angle
@@ -309,16 +309,17 @@ joint's slot.
 | Slot | Joint | Driver | Supply | Mode jumper | Homing input |
 |---|---|---|---|---|---|
 | Driver0 | spare | | | | STOP_0 (PG6) spare (e-stop later) |
-| Driver1 | Focus | TMC2209 | 24 V | UART | STOP_1 (PG9) = this driver's DIAG (stall), jumper **fitted** (D-36) |
-| Driver2 | Pitch | TMC2209 | 24 V | UART | STOP_2 (PG10) |
+| Driver1 | Pitch | TMC2209 | 24 V | UART | STOP_1 (PG9) |
+| Driver2 | Focus | TMC2209 | 24 V | UART | STOP_2 (PG10) = this driver's DIAG (stall), jumper **fitted** (D-36) |
 | Driver3 | Yaw | TMC2209 | 24 V | UART | STOP_3 (PG11) |
-| Driver4 | R | TMC5160T Pro | 48 V | SPI | STOP_4 (PG12) |
-| Driver5 | Z2 | TMC5160T Pro | 48 V | SPI | none (follows Z1; STOP_5 spare) |
-| Driver6 | Z1 | TMC5160T Pro | 48 V | SPI | STOP_6 (PG14), the one Z switch |
-| Driver7 | Theta | TMC5160T Pro | 48 V | SPI | STOP_7 (PG15) |
+| Driver4 | R | TMC5160T Pro | 24 V | SPI | STOP_4 (PG12) |
+| Driver5 | Z2 | TMC5160T Pro | 24 V | SPI | none (follows Z1; STOP_5 spare) |
+| Driver6 | Z1 | TMC5160T Pro | 24 V | SPI | STOP_6 (PG14), the one Z switch |
+| Driver7 | Theta | TMC5160T Pro | 24 V | SPI | STOP_7 (PG15) |
 
-The 24 V drivers are grouped on Driver1–3 and the 48 V drivers on Driver4–7, so the power
-jumpers are easy to check at a glance. Driver7's DIR pin is PA14, the SWD clock: with THETA
+The TMC2209s are grouped on Driver1–3 and the TMC5160s on Driver4–7, so the mode jumpers are
+easy to check at a glance. The firmware reads each joint's endstop from its first driver's
+slot (`jointEndstop()`), so moving a joint to another slot moves its endstop too. Driver7's DIR pin is PA14, the SWD clock: with THETA
 there, flash over SWD with "connect under reset" (or use USB DFU).
 
 > Use the **Octopus V1.1 / Pro V1.0 (F446)** pin map (D-34), not the Pro v1.1 (H723) one:
@@ -472,7 +473,7 @@ optical gate on the ring. Focus homes by driving toward infinity at low current 
 TMC2209's StallGuard4 trips; that stop is ring angle 0.
 *Consequences:*
 - Exception to D-20 (switches on every axis), for this axis only.
-- Driver1's DIAG jumper stays **fitted** so the stall output reaches STOP_1 as an input
+- Driver2's DIAG jumper stays **fitted** so the stall output reaches STOP_2 as an input
   (D-29's polling concern doesn't apply). The TMC2209 is already in StealthChop, which
   StallGuard4 needs.
 - Needs tuning on the real lens (`SGTHRS`, `TCOOLTHRS`, homing speed and current); ignore the
@@ -495,10 +496,10 @@ A software stop and a power switch are not enough on their own:
   cases where you need a stop most (frozen program, USB dropped, firmware bug) are the cases
   where it fails.
 - A power switch is not designed or placed to be hit quickly; a mushroom e-stop button is.
-- 48 V motors with leadscrews and a lifting Z can pinch and crush.
+- NEMA 23 motors with leadscrews and a lifting Z can pinch and crush.
 
 Proposed design, details to decide:
-- A latching red mushroom e-stop that cuts **motor power** (48 V and 24 V to the motors),
+- A latching red mushroom e-stop that cuts **motor power** (24 V to the motors),
   through a relay or contactor rated for DC if switching on the DC side.
 - A second contact on the button wired to an Octopus input, so the firmware knows the
   e-stop was pressed, stops sending steps, and requires re-homing.
@@ -724,3 +725,4 @@ Each step is testable on its own before the next. Status in brackets.
 | 2026-11-07 | Microstepping and chopper modes recorded (D-37); interpolation set explicitly in the firmware. |
 | 2026-11-07 | Yaw, Pitch and Focus transmissions recorded from the CAD and McMaster parts (D-15); `arm.yaml` updated. |
 | 2026-11-07 | Slots reassigned (D-16): Focus/Pitch/Yaw on Driver1–3, R/Z2/Z1/Theta on Driver4–7; endstops moved to match each slot (Focus's stall input is now STOP_1). |
+| 2026-11-07 | Pitch and Focus swapped (Pitch on Driver1, Focus on Driver2). Firmware now derives each endstop from its driver's slot. Every driver on one 24 V supply (D-13). |

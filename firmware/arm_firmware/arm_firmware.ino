@@ -56,11 +56,6 @@ enum Joint : uint8_t { THETA, Z, R, YAW, PITCH, FOCUS, kJointCount };
 
 enum class DriverType : uint8_t { TMC5160, TMC2209 };
 
-struct JointConfig {
-  const char* name;
-  uint8_t endstop;  // index into kEndstopPins (STOP_n)
-};
-
 struct DriverConfig {
   const char* name;
   Joint joint;
@@ -71,23 +66,15 @@ struct DriverConfig {
   uint16_t microsteps;
 };
 
-// Each joint's switch is on the STOP_n that matches its driver slot (Z: Z1's slot), so the
-// DIAG jumper rule is simple: remove it on every slot except FOCUS's. Keep this in step with
-// kDrivers below.
-const JointConfig kJoints[kJointCount] = {
-    {"THETA", 7},
-    {"Z", 6},
-    {"R", 4},
-    {"YAW", 3},
-    {"PITCH", 2},
-    // No optical switch on focus: it will home into the lens's infinity stop by stall
-    // detection (D-36). With Driver1's DIAG jumper fitted, STOP_1 reads the driver's stall
-    // output, so ENDSTOPS shows FOCUS=1 while stalled. Must equal FOCUS's driver slot.
-    {"FOCUS", 1},
-};
+const char* const kJointNames[kJointCount] = {"THETA", "Z", "R", "YAW", "PITCH", "FOCUS"};
 
+// Which slot each joint is on. Every motor is on the 24 V supply (D-13).
+// Endstops follow the slots: a joint's switch goes on the STOP_n matching its first driver's
+// slot (see jointEndstop()), so moving a joint to another slot moves its endstop too. On the
+// board, remove the DIAG jumper on every slot except FOCUS's.
 // Z1 and Z2 always get the same steps (D-12). Their settings must match; if the two motors
-// face opposite ways, flip invert_dir on one of them.
+// face opposite ways, flip invert_dir on one of them. Z's switch is on Z1's slot: keep Z1
+// listed before Z2.
 // All motors are 1.8 deg (200 steps/rev). Hold current is half the run current (TMCStepper's
 // default hold multiplier).
 const DriverConfig kDrivers[] = {
@@ -107,14 +94,24 @@ const DriverConfig kDrivers[] = {
     {"YAW", YAW, 3, DriverType::TMC2209, false, 1100, 16},
     // 17HS4401 NEMA 17, 1.5 A rated. The CAD has two pitch motors but this is one driver: if
     // both are wired to it in parallel, each gets only half of this current.
-    {"PITCH", PITCH, 2, DriverType::TMC2209, false, 1100, 16},
+    {"PITCH", PITCH, 1, DriverType::TMC2209, false, 1100, 16},
     // NEMA 14 on the follow-focus mount (Amazon B0FHHS5T9M): 35x35x28.2 mm, 12 N*cm,
     // 0.6 A rated, 4.5 ohm, 6.5 mH. 450 mA = 75% of rated.
-    // Slot must be on the 24 V motor supply (TMC2209).
+    // No optical switch: focus will home into the lens's infinity stop by stall detection
+    // (D-36). This slot keeps its DIAG jumper, so its STOP_n reads the driver's stall output
+    // and ENDSTOPS shows FOCUS=1 while stalled.
     // Flip invert_dir if + steps turn the ring toward infinity instead of close focus.
-    {"FOCUS", FOCUS, 1, DriverType::TMC2209, false, 450, 16},
+    {"FOCUS", FOCUS, 2, DriverType::TMC2209, false, 450, 16},
 };
 const size_t kDriverCount = sizeof(kDrivers) / sizeof(kDrivers[0]);
+
+// STOP_n index for a joint: the slot of its first driver in kDrivers.
+uint8_t jointEndstop(Joint j) {
+  for (const DriverConfig& c : kDrivers) {
+    if (c.joint == j) return c.slot;
+  }
+  return 0;  // not reached: every joint has a driver
+}
 
 // Sense resistors set the current scale. VERIFY against the driver boards: if the value here
 // is higher than the real resistor, the motors get MORE current than requested.
@@ -842,10 +839,10 @@ bool parseInts(char** argv, int count, int32_t* values) {
   return true;
 }
 
-// Index into kJoints, or -1.
+// Index into kJointNames, or -1.
 int parseJoint(const char* name) {
   for (int j = 0; j < kJointCount; ++j) {
-    if (strcmp(name, kJoints[j].name) == 0) {
+    if (strcmp(name, kJointNames[j]) == 0) {
       return j;
     }
   }
@@ -1085,14 +1082,14 @@ void Protocol::cmdSeg(const char* seq, int argc, char** argv) {
     int32_t from = fresh ? motion.position(j) : lastTarget_[j];
     const JointLimits& l = limits_[j];
     if (targets[j] < l.min || targets[j] > l.max) {
-      snprintf(message, sizeof(message), "%s %ld not in [%ld, %ld]", kJoints[j].name,
+      snprintf(message, sizeof(message), "%s %ld not in [%ld, %ld]", kJointNames[j],
                static_cast<long>(targets[j]), static_cast<long>(l.min), static_cast<long>(l.max));
       err(seq, "OUT_OF_LIMITS", message);
       return;
     }
     uint64_t steps = static_cast<uint64_t>(llabs(static_cast<int64_t>(targets[j]) - from));
     if (steps * 1000000ULL > static_cast<uint64_t>(l.max_rate) * dur) {
-      snprintf(message, sizeof(message), "%s needs %lu steps/s, max %lu", kJoints[j].name,
+      snprintf(message, sizeof(message), "%s needs %lu steps/s, max %lu", kJointNames[j],
                static_cast<unsigned long>(steps * 1000000ULL / dur),
                static_cast<unsigned long>(l.max_rate));
       err(seq, "TOO_FAST", message);
@@ -1228,7 +1225,7 @@ BringUpResult spin(const char* seq, unsigned long q, int argc, char** argv) {
   if (done < total) {
     say("%s ERR ABORTED q=%lu after %ld of %ld steps\n", seq, q, done, total);
   } else {
-    say("%s OK q=%lu %s moved %ld steps\n", seq, q, kJoints[joint].name, steps);
+    say("%s OK q=%lu %s moved %ld steps\n", seq, q, kJointNames[joint], steps);
   }
   return BringUpResult::kDoneMoved;
 }
@@ -1251,8 +1248,9 @@ BringUpResult bringUpCommand(const char* seq, const char* command, int argc, cha
     }
   } else if (strcmp(command, "ENDSTOPS") == 0) {
     say("%s OK q=%lu", seq, q);
-    for (const JointConfig& j : kJoints) {
-      say(" %s=%d", j.name, digitalRead(kEndstopPins[j.endstop]));
+    for (uint8_t j = 0; j < kJointCount; ++j) {
+      uint8_t stop = jointEndstop(static_cast<Joint>(j));
+      say(" %s=%d", kJointNames[j], digitalRead(kEndstopPins[stop]));
     }
     say("\n");
   } else if (strcmp(command, "SPIN") == 0) {

@@ -12,7 +12,7 @@ They can be the same Windows machine. Background and design decisions:
 `docs/control_system_decisions.md`. More firmware detail: `firmware/README.md`.
 
 > **Safety, read first**
-> - **Yaw, Pitch and Focus (TMC2209 drivers, Driver1–3) must be on 24 V, never 48 V.** A TMC2209 on 48 V is destroyed.
+> - **Every driver runs from 24 V; never connect a higher motor voltage.** The TMC2209s (Driver1–3) are destroyed above about 29 V.
 > - A driver plugged in backwards is destroyed. Check orientation before power-on.
 > - **Z drops when the motors are off** unless the carriage is supported.
 > - Homing and the e-stop aren't written yet. Keep a hand on the motor power switch.
