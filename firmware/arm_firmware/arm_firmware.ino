@@ -110,17 +110,9 @@ const DriverConfig kDrivers[] = {
     // (D-36). This slot keeps its DIAG jumper, so its STOP_n reads the driver's stall output
     // and ENDSTOPS shows FOCUS=1 while stalled.
     // Flip invert_dir if + steps turn the ring toward infinity instead of close focus.
-    {"FOCUS", FOCUS, 2, DriverType::TMC2209, false, 450, 16},
+    {"FOCUS", FOCUS, 2, DriverType::TMC2209, false, 1000, 16},
 };
 const size_t kDriverCount = sizeof(kDrivers) / sizeof(kDrivers[0]);
-
-// STOP_n index for a joint: the slot of its first driver in kDrivers.
-uint8_t jointEndstop(Joint j) {
-  for (const DriverConfig& c : kDrivers) {
-    if (c.joint == j) return c.slot;
-  }
-  return 0;  // not reached: every joint has a driver
-}
 
 // Sense resistors set the current scale. VERIFY against the driver boards: if the value here
 // is higher than the real resistor, the motors get MORE current than requested.
@@ -227,6 +219,18 @@ struct FastPin {
   GPIO_TypeDef* port;
   uint32_t bit;
 };
+
+// STOP_n index for a joint: the slot of its first driver in kDrivers.
+//
+// Keep this (and every other function) below the type definitions above. The Arduino IDE
+// inserts auto-generated prototypes just before the first function in the sketch, so a
+// function placed above these types breaks the build ("'FastPin' does not name a type").
+uint8_t jointEndstop(Joint j) {
+  for (const DriverConfig& c : kDrivers) {
+    if (c.joint == j) return c.slot;
+  }
+  return 0;  // not reached: every joint has a driver
+}
 
 // The step generator and segment queue.
 //
