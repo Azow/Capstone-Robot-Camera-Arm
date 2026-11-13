@@ -478,6 +478,13 @@ TMC2209's StallGuard4 trips; that stop is ring angle 0.
   StallGuard4 needs.
 - Needs tuning on the real lens (`SGTHRS`, `TCOOLTHRS`, homing speed and current); ignore the
   first steps while accelerating. Approach targets from the same side to take up gear backlash.
+- 2026-11-13, first step: a **stall test** before any homing. The ring is put on one hard
+  stop by hand (zero, the close-focus end for this test), and the bench-build firmware's
+  `STALLSEEK` turns it until StallGuard trips at the other stop. arm_bench's motor_test
+  window ("Focus stall test" tab) compares the measured steps with arm.yaml's prediction
+  (300° × steps_per_unit = 4800), shows the implied lens tooth count, and graphs
+  StallGuard live so the threshold can be picked. Bench and run builds are one sketch with a
+  `BENCH_TESTS` switch.
 
 ### Safety
 
@@ -611,7 +618,18 @@ Motion (`SEG`, `GO`) needs all three.
 | `PING` | Nothing (keeps the watchdog fed). | |
 
 Bring-up commands (`INFO`, `DRIVERS`, `ENDSTOPS`, `SPIN`) stay for hand testing in `IDLE`;
-the bridge doesn't use them.
+the bridge doesn't use them. The bench build (`BENCH_TESTS 1`) adds `STALLSEEK` for
+arm_bench's focus stall test (D-36); see firmware/README.md. It also adds **single-joint
+power**, so a bench test can power only the motor under test:
+
+- `ENABLE <joint> [joint ...]` / `DISABLE <joint> [joint ...]` switch only those joints
+  (`Z` = both Z drivers). With no joints they act on all drivers, as above. `enabled` stays 1
+  while any driver is on. A single-joint `DISABLE` does **not** clear `homed`: the joints
+  switched off lose their position, the others keep it, and arm_bench tracks which.
+- `SEG` answers `DISABLED <joint> is off` if it would move a joint that is switched off.
+- `STATUS` adds `power=<6 comma-separated 0/1>` (1 = all of that joint's drivers on).
+
+The run build has none of this; the bridge doesn't use it.
 
 ### Errors
 

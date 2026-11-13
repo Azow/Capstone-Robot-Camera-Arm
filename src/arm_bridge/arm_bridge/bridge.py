@@ -84,6 +84,11 @@ class ArmBridge:
             self.run = None
         self._say(f'Lost the board: {reason}')
 
+    def disconnect(self):
+        """Close the port (poll() would connect again)."""
+        if self.link:
+            self._disconnect('closed')
+
     def _say(self, message):
         self.message = message
         self.log(message)
@@ -286,6 +291,19 @@ class ArmBridge:
         self.run = Run(segments, move, done_message=f'{j.urdf_name} moved')
         self.progress = 0.0
         self._say(f'Moving {j.urdf_name} ({move:.1f} s)')
+        return True, 'OK'
+
+    def run_segments(self, segments, duration, start_message='Moving', done_message='Finished'):
+        """Run segments built elsewhere (dur_us, steps in board order), e.g. arm_bench's
+        speed and acceleration tests. The board still checks them against its LIMITS."""
+        ok, message = self._check_can_move()
+        if not ok:
+            return ok, message
+        if not segments:
+            return False, 'Nothing to move'
+        self.run = Run(list(segments), duration, done_message=done_message)
+        self.progress = 0.0
+        self._say(start_message)
         return True, 'OK'
 
     def _check_can_move(self):

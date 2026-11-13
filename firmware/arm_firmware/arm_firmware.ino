@@ -13,7 +13,8 @@
 //   4. Hardware        safe startup, STEP/DIR pins, TMC driver setup, clock
 //   5. Motion          segment queue and the Bresenham step generator (interrupt side)
 //   6. Protocol        serial commands, checks, replies, events, watchdog
-//   7. Bring-up        HELP, INFO, DRIVERS, ENDSTOPS, SPIN (for testing by hand)
+//   7. Bring-up        HELP, INFO, DRIVERS, ENDSTOPS, SPIN (for testing by hand), and in the
+//                      bench build, STALLSEEK (focus stall test)
 //   8. setup / loop
 //
 // The other end of the protocol is src/arm_bridge (protocol.py), and the Python fake board
@@ -48,7 +49,15 @@
 // Decisions D-10, D-12, D-14, D-16, D-35. Currents follow the motors in D-14: about 70-75% of
 // each motor's rated current (RMS).
 
-const char* const kFirmwareVersion = "0.4";
+const char* const kFirmwareVersion = "0.5";
+
+// Which firmware this is:
+//   1 = bench build: everything below plus the bench test commands (STALLSEEK, the focus stall
+//       test used by arm_bench's motor_test window). They can drive a motor into a hard stop,
+//       so they are left out of the run build.
+//   0 = run build: what the arm runs paths with.
+// INFO prints build=bench or build=run. Everything else is the same in both.
+#define BENCH_TESTS 1
 
 // Protocol order. FOCUS is the lens's focus ring (D-35): the PC turns camera-to-subject
 // distance into a ring angle and sends it in steps like any other joint.
@@ -334,6 +343,10 @@ class Protocol {
   void cmdClear(const char* seq, int argc, char** argv);
   void cmdPing(const char* seq, int argc, char** argv);
 
+#if BENCH_TESTS
+  void switchJoints(const char* seq, int argc, char** argv, bool on);
+#endif
+
   void ok(const char* seq, const char* extra = "");
   void err(const char* seq, const char* code, const char* message = "");
   bool needState(const char* seq, bool idle, bool running, bool fault);
@@ -519,6 +532,38 @@ void setDriversEnabled(bool on) {
     driverEnabled[d] = on;
   }
 }
+
+#if BENCH_TESTS
+// Bench build: power single joints (ENABLE/DISABLE <joint>...). Bit j of `mask` = joint j; a
+// joint with two drivers (Z) switches both.
+void setJointsEnabled(uint32_t mask, bool on) {
+  for (size_t d = 0; d < kDriverCount; ++d) {
+    if (mask & (1U << kDrivers[d].joint)) {
+      digitalWrite(kSlotPins[kDrivers[d].slot].enable, on ? LOW : HIGH);
+      driverEnabled[d] = on;
+    }
+  }
+}
+
+// True if every driver of the joint is on.
+bool jointPowered(int joint) {
+  for (size_t d = 0; d < kDriverCount; ++d) {
+    if (kDrivers[d].joint == joint && !driverEnabled[d]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool anyDriverEnabled() {
+  for (bool on : driverEnabled) {
+    if (on) {
+      return true;
+    }
+  }
+  return false;
+}
+#endif
 
 // Called from the step interrupt (and SPIN). Always before the stepPulse() that uses it.
 void setDirection(int joint, bool forward) {
@@ -781,10 +826,55 @@ void Motion::finish(Event event) {
   events_[event] = events_[event] + 1;
 }
 
+#if BENCH_TESTS
+// STALLSEEK (section 7): one joint at a constant rate until its driver's DIAG pin reports a
+// stall or it has gone `total` steps. Stepped from the interrupt so the main loop is free to
+// read StallGuard over the slow driver UART meanwhile. The main loop fills it in while
+// `active` is false, then sets `active`; only the interrupt clears it, except to abort.
+struct StallSeek {
+  volatile bool active = false;
+  volatile bool stalled = false;
+  volatile int32_t done = 0;  // steps taken
+  int32_t total = 0;
+  uint64_t rate = 0;          // 1/2^32 steps per tick
+  uint64_t phase = 0;
+  uint32_t ticks = 0;
+  uint32_t ignoreTicks = 0;   // StallGuard reads wrong while starting: ignore DIAG this long
+  uint32_t stepMask = 0;
+  FastPin diag = {};
+};
+StallSeek stallSeek;
+
+void stallSeekTick() {
+  StallSeek& s = stallSeek;
+  if (!s.active) {
+    return;
+  }
+  ++s.ticks;
+  if (s.ticks > s.ignoreTicks && (s.diag.port->IDR & s.diag.bit)) {
+    s.stalled = true;
+    s.active = false;
+    return;
+  }
+  s.phase += s.rate;
+  if (s.phase >= kOneStep) {
+    s.phase -= kOneStep;
+    stepPulse(s.stepMask);
+    s.done = s.done + 1;
+    if (s.done >= s.total) {
+      s.active = false;
+    }
+  }
+}
+#endif
+
 // The step interrupt, kTickHz times a second.
 void onStepTimer() {
   uint32_t start = cycleCount();
   motion.tick();
+#if BENCH_TESTS
+  stallSeekTick();
+#endif
   uint32_t cycles = cycleCount() - start;
   if (cycles > tickMaxCycles) {
     tickMaxCycles = cycles;
@@ -1016,24 +1106,64 @@ void Protocol::cmdLimits(const char* seq, int argc, char** argv) {
   ok(seq);
 }
 
-void Protocol::cmdEnable(const char* seq, int, char**) {
+void Protocol::cmdEnable(const char* seq, int argc, char** argv) {
   if (!needState(seq, true, false, true)) {
     return;
   }
+#if BENCH_TESTS
+  if (argc > 0) {
+    switchJoints(seq, argc, argv, true);
+    return;
+  }
+#else
+  (void)argc;
+  (void)argv;
+#endif
   setDriversEnabled(true);
   enabled_ = true;
   ok(seq);
 }
 
-void Protocol::cmdDisable(const char* seq, int, char**) {
+void Protocol::cmdDisable(const char* seq, int argc, char** argv) {
   if (!needState(seq, true, false, true)) {
     return;
   }
+#if BENCH_TESTS
+  if (argc > 0) {
+    switchJoints(seq, argc, argv, false);
+    return;
+  }
+#else
+  (void)argc;
+  (void)argv;
+#endif
   setDriversEnabled(false);
   enabled_ = false;
   homed_ = false;  // unpowered motors can be moved, and Z falls (D-31)
   ok(seq);
 }
+
+#if BENCH_TESTS
+// Bench build: ENABLE <joint>... / DISABLE <joint>... switch only those joints (Z = both Z
+// drivers), so a test can power just the motor under test. `enabled` stays 1 while any driver
+// is on. Unlike a plain DISABLE this keeps `homed`: the joints that went limp lose their
+// position, the others don't, and the PC (arm_bench) keeps track of which is which. SEG
+// refuses to move a joint that is off. STATUS adds power=<6 x 0/1>.
+void Protocol::switchJoints(const char* seq, int argc, char** argv, bool on) {
+  uint32_t mask = 0;
+  for (int i = 0; i < argc; ++i) {
+    int j = parseJoint(argv[i]);
+    if (j < 0) {
+      err(seq, "BAD_ARGS", on ? "ENABLE [joint ...]" : "DISABLE [joint ...]");
+      return;
+    }
+    mask |= 1U << j;
+  }
+  setJointsEnabled(mask, on);
+  enabled_ = anyDriverEnabled();
+  ok(seq);
+}
+#endif
 
 void Protocol::cmdHome(const char* seq, int, char**) {
   err(seq, "NOT_IMPLEMENTED", "homing is build step 5; use SETPOS for bench tests");
@@ -1087,6 +1217,13 @@ void Protocol::cmdSeg(const char* seq, int argc, char** argv) {
       err(seq, "OUT_OF_LIMITS", message);
       return;
     }
+#if BENCH_TESTS
+    if (targets[j] != from && !jointPowered(j)) {  // single-joint power (switchJoints)
+      snprintf(message, sizeof(message), "%s is off", kJointNames[j]);
+      err(seq, "DISABLED", message);
+      return;
+    }
+#endif
     uint64_t steps = static_cast<uint64_t>(llabs(static_cast<int64_t>(targets[j]) - from));
     if (steps * 1000000ULL > static_cast<uint64_t>(l.max_rate) * dur) {
       snprintf(message, sizeof(message), "%s needs %lu steps/s, max %lu", kJointNames[j],
@@ -1157,8 +1294,14 @@ void Protocol::cmdStatus(const char* seq, int, char**) {
     n += snprintf(extra + n, sizeof(extra) - n, j ? ",%ld" : "%ld",
                   static_cast<long>(motion.position(j)));
   }
-  snprintf(extra + n, sizeof(extra) - n, " seg=%lu",
-           static_cast<unsigned long>(motion.playingSeq()));
+  n += snprintf(extra + n, sizeof(extra) - n, " seg=%lu",
+                static_cast<unsigned long>(motion.playingSeq()));
+#if BENCH_TESTS
+  for (int j = 0; j < kJointCount; ++j) {  // which joints are powered (switchJoints)
+    n += snprintf(extra + n, sizeof(extra) - n, j ? ",%d" : " power=%d", jointPowered(j));
+  }
+#endif
+  (void)n;
   ok(seq, extra);
 }
 
@@ -1187,6 +1330,17 @@ const char* const kHelp =
     "  SPIN <joint> <steps> [rate]  move one joint at a constant rate (default 400\n"
     "                               steps/s); ENABLE first. Any input aborts.\n"
     "  ENDSTOPS                     raw endstop input levels\n"
+#if BENCH_TESTS
+    "Bench test commands (bench build, IDLE only):\n"
+    "  STALLSEEK FOCUS <steps> <rate> <sgthrs> <current_ma>\n"
+    "                               turn focus at a constant rate until StallGuard trips\n"
+    "                               or <steps> are done; prints SG lines while moving.\n"
+    "                               ENABLE and DRIVERS first. Any input aborts.\n"
+    "  ENABLE <joint> [joint ...]   power only those joints (Z = both Z drivers)\n"
+    "  DISABLE <joint> [joint ...]  switch only those joints off (they lose their\n"
+    "                               position; the others keep theirs). STATUS power=\n"
+    "                               shows which joints are on.\n"
+#endif
     "Joints: THETA Z R YAW PITCH FOCUS. A leading number is the sequence number (optional).\n";
 
 // Blocking, constant speed, no acceleration. Moves the motor outside the step generator,
@@ -1230,14 +1384,126 @@ BringUpResult spin(const char* seq, unsigned long q, int argc, char** argv) {
   return BringUpResult::kDoneMoved;
 }
 
+#if BENCH_TESTS
+const uint32_t kStallIgnoreMs = 100;   // DIAG ignored this long after starting
+const uint32_t kStallSampleMs = 25;    // StallGuard reading printed this often (a read ~8 ms)
+const long kMinStallCurrent = 50;      // mA
+
+// The focus stall test (arm_bench). Reduced current, StallGuard threshold `sgthrs` (stall when
+// SG_RESULT <= 2 * sgthrs), constant rate, stops on the DIAG pin. While moving it prints
+//   SG t=<ms> steps=<n> sg=<SG_RESULT>
+// and finishes with
+//   <seq> OK q=.. result=stall|limit|aborted steps=<signed steps> t_ms=<ms> sg_min=<n>
+// sg_min is the lowest reading after the first kStallIgnoreMs (-1 if none). The board keeps
+// counting the position (steps that slipped against a stop are counted too), so homed stays.
+// Afterwards the threshold is cleared and the run current put back.
+BringUpResult stallSeekCommand(const char* seq, unsigned long q, int argc, char** argv) {
+  const char* usage = "STALLSEEK FOCUS <steps> <rate> <sgthrs> <current_ma>";
+  int joint = argc == 5 ? parseJoint(argv[0]) : -1;
+  if (joint != FOCUS) {
+    // Only FOCUS's driver slot has its DIAG jumper fitted (D-36).
+    say("%s ERR BAD_ARGS q=%lu %s (FOCUS only)\n", seq, q, usage);
+    return BringUpResult::kDone;
+  }
+  int32_t v[4];
+  if (!parseInts(argv + 1, 4, v)) {
+    say("%s ERR BAD_ARGS q=%lu %s\n", seq, q, usage);
+    return BringUpResult::kDone;
+  }
+  long steps = v[0], rate = v[1], sgthrs = v[2], current = v[3];
+  size_t d = 0;
+  while (kDrivers[d].joint != joint) {
+    ++d;
+  }
+  const DriverConfig& c = kDrivers[d];
+  if (steps == 0 || rate <= 0 || rate > kMaxSpinRate || sgthrs < 0 || sgthrs > 255 ||
+      current < kMinStallCurrent || current > c.run_current_ma) {
+    say("%s ERR BAD_ARGS q=%lu steps != 0, rate 1..%ld, sgthrs 0..255, current %ld..%u mA\n",
+        seq, q, kMaxSpinRate, kMinStallCurrent, static_cast<unsigned>(c.run_current_ma));
+    return BringUpResult::kDone;
+  }
+  if (!driverEnabled[d]) {
+    say("%s ERR DISABLED q=%lu ENABLE first\n", seq, q);
+    return BringUpResult::kDone;
+  }
+  TMC2209Stepper& drv = *uartDrivers[d];
+  uartPorts[d]->listen();
+  if (drv.version() != kVersion2209) {
+    say("%s ERR NO_ANSWER q=%lu %s driver did not answer (motor power? run DRIVERS)\n", seq,
+        q, c.name);
+    return BringUpResult::kDone;
+  }
+  drv.rms_current(current);
+  drv.SGTHRS(static_cast<uint8_t>(sgthrs));
+  drv.TCOOLTHRS(0xFFFFF);  // StallGuard on at every speed (it is on while TSTEP <= TCOOLTHRS)
+
+  setDirection(joint, steps >= 0);
+  delayMicroseconds(5);  // direction setup time before the first step
+  StallSeek& s = stallSeek;
+  s.stalled = false;
+  s.done = 0;
+  s.total = labs(steps);
+  s.rate = static_cast<uint64_t>(rate) * kOneStep / kTickHz;
+  s.phase = 0;
+  s.ticks = 0;
+  s.ignoreTicks = kStallIgnoreMs * (kTickHz / 1000);
+  s.stepMask = 1U << joint;
+  s.diag = fastPin(kEndstopPins[jointEndstop(static_cast<Joint>(joint))]);
+  barrier();
+  s.active = true;
+
+  uint32_t start = millis();
+  uint32_t nextSample = start;
+  int sgMin = -1;
+  bool aborted = false;
+  while (s.active) {
+    if (Serial.available()) {  // any input aborts; the line is then run as usual
+      s.active = false;
+      aborted = true;
+      break;
+    }
+    uint32_t now = millis();
+    if (static_cast<int32_t>(now - nextSample) >= 0) {
+      uint16_t sg = drv.SG_RESULT();
+      uint32_t t = millis() - start;
+      if (t >= kStallIgnoreMs && (sgMin < 0 || sg < sgMin)) {
+        sgMin = sg;
+      }
+      say("SG t=%lu steps=%ld sg=%u\n", static_cast<unsigned long>(t),
+          static_cast<long>(s.done), sg);
+      nextSample = millis() + kStallSampleMs;
+    }
+  }
+  uint32_t elapsed = millis() - start;
+  int32_t moved = steps >= 0 ? s.done : -s.done;
+
+  drv.SGTHRS(0);
+  drv.TCOOLTHRS(0);
+  drv.rms_current(c.run_current_ma);
+
+  int32_t pos[kJointCount];
+  for (int j = 0; j < kJointCount; ++j) {
+    pos[j] = motion.position(j);
+  }
+  pos[joint] += moved;
+  motion.setPosition(pos);
+
+  const char* result = aborted ? "aborted" : s.stalled ? "stall" : "limit";
+  say("%s OK q=%lu result=%s steps=%ld t_ms=%lu sg_min=%d\n", seq, q, result,
+      static_cast<long>(moved), static_cast<unsigned long>(elapsed), sgMin);
+  return BringUpResult::kDone;
+}
+#endif
+
 BringUpResult bringUpCommand(const char* seq, const char* command, int argc, char** argv) {
   unsigned long q = motion.freeSlots();
   if (strcmp(command, "HELP") == 0) {
     Serial.print(kHelp);
     say("%s OK q=%lu\n", seq, q);
   } else if (strcmp(command, "INFO") == 0) {
-    say("%s OK q=%lu firmware=%s sysclk=%lu tick_max=%lu tick_budget=%lu\n", seq, q,
-        kFirmwareVersion, static_cast<unsigned long>(HAL_RCC_GetSysClockFreq()),
+    say("%s OK q=%lu firmware=%s build=%s sysclk=%lu tick_max=%lu tick_budget=%lu\n", seq, q,
+        kFirmwareVersion, BENCH_TESTS ? "bench" : "run",
+        static_cast<unsigned long>(HAL_RCC_GetSysClockFreq()),
         static_cast<unsigned long>(tickMaxCycles),
         static_cast<unsigned long>(SystemCoreClock / kTickHz));
   } else if (strcmp(command, "DRIVERS") == 0) {
@@ -1255,6 +1521,10 @@ BringUpResult bringUpCommand(const char* seq, const char* command, int argc, cha
     say("\n");
   } else if (strcmp(command, "SPIN") == 0) {
     return spin(seq, q, argc, argv);
+#if BENCH_TESTS
+  } else if (strcmp(command, "STALLSEEK") == 0) {
+    return stallSeekCommand(seq, q, argc, argv);
+#endif
   } else {
     return BringUpResult::kUnknown;
   }

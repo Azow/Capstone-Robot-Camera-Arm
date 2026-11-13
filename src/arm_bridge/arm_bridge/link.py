@@ -25,6 +25,7 @@ class BoardLink:
         self._events = []
         self.free = 0           # free queue slots, from the latest reply
         self.text = []          # non-protocol lines (e.g. DRIVER reports) before the last reply
+        self._partial = b''     # read_lines(): start of a line still arriving
 
     @property
     def last_seq(self):
@@ -71,6 +72,28 @@ class BoardLink:
                     self._serial.timeout = self._timeout
                 except (serial.SerialException, OSError):
                     pass
+
+    def send(self, command, *args):
+        """Send a request without waiting for its reply; returns its seq. For long bring-up
+        commands that print as they go (arm_bench's STALLSEEK): read with read_lines()."""
+        self._seq += 1
+        seq = str(self._seq)
+        try:
+            self._serial.write(p.format_request(seq, command, *args).encode('ascii'))
+        except (serial.SerialException, OSError) as e:
+            raise LinkError(str(e)) from e
+        return seq
+
+    def read_lines(self):
+        """The complete lines that have arrived, without waiting."""
+        try:
+            waiting = self._serial.in_waiting
+            if waiting:
+                self._partial += self._serial.read(waiting)
+        except (serial.SerialException, OSError) as e:
+            raise LinkError(str(e)) from e
+        *lines, self._partial = self._partial.split(b'\n')
+        return [line.decode('ascii', 'replace').strip() for line in lines if line.strip()]
 
     def check(self, command, *args):
         """Like request(), but an ERR reply raises LinkError."""

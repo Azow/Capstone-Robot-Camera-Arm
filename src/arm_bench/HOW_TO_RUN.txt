@@ -1,0 +1,81 @@
+arm_bench: how to run motor_test
+================================
+
+All commands are run in WSL unless marked PowerShell.
+
+
+1. Build (once, and again after changing the code)
+--------------------------------------------------
+    cd ~/capstone_ws
+    source /opt/ros/jazzy/setup.bash
+    colcon build --packages-select arm_bridge arm_bench
+    source install/setup.bash
+
+
+2. Try it without the board (fake board)
+----------------------------------------
+Terminal 1, the pretend board:
+    source ~/capstone_ws/install/setup.bash
+    ros2 run arm_bridge fake_board
+
+Terminal 2, the window:
+    source ~/capstone_ws/install/setup.bash
+    ros2 run arm_bench motor_test --port /tmp/fake_octopus
+
+
+3. With the real board
+----------------------
+a) Attach the board to WSL. In Windows PowerShell, run as administrator:
+    usbipd list
+    usbipd attach --wsl --busid <BUSID>
+
+b) In WSL, check that it shows up:
+    ls /dev/ttyACM*
+
+c) Start the window with that port:
+    source ~/capstone_ws/install/setup.bash
+    ros2 run arm_bench motor_test --port /dev/ttyACM0
+
+If the window says "permission denied" on the port:
+    sudo usermod -aG dialout $USER
+then restart WSL (PowerShell: wsl --shutdown).
+
+
+Options
+-------
+    --port      serial port of the board
+    --config    arm.yaml to use (default: arm_bridge's config/arm.yaml)
+    --data-dir  where results.csv and ranges.yaml are kept (default: ~/arm_bench)
+
+
+4. Automated tests (no window; uses the fake board)
+---------------------------------------------------
+    cd ~/capstone_ws/src/arm_bench
+    PYTHONPATH=../arm_bridge:. python3 -m pytest -q test
+
+
+Using the window (short version; README.md has more)
+----------------------------------------------------
+1. Connect. Enable all / Disable all check that every driver turns on and off.
+2. Power only the joint under test (bench firmware): Power row, one button per joint
+   (green = on), or "Power this joint only". With "Only the selected joint" ticked,
+   picking a joint powers just that one. It asks before switching Z off.
+   A joint that was switched off shows "unknown" until you Set lower here for it.
+3. Get the joint to its lower end: jog there, or switch it off, move it by hand, switch
+   it on. Line up your marker, then click Set lower here.
+4. Jog to the other end, then click Set upper here (ranges are saved between sessions).
+5. Set top speed, acceleration, cycles and pause, then click Run test.
+6. Check the marker and click Acceptable or Skipped (with an optional note).
+   If it skipped: realign to the marker and Set lower here again.
+
+Esc stops at any time. Space = emergency stop: stops and disables every driver.
+
+Focus stall test tab (flash the bench firmware: #define BENCH_TESTS 1):
+1. In the tab: Focus off, turn the focus ring by hand onto one hard stop, then
+   Power focus only (every other motor stays off) and Set zero here.
+2. Direction toward the other stop; speed, stall threshold, current, max travel.
+3. Start seek. Compare measured vs predicted steps (README.md has how to pick a threshold).
+   The fake board has a pretend lens 4650 steps long, to try it without hardware.
+Disable all lets Z drop: park it at the bottom first.
+Jogging has no limits: watch the hard stops, especially FOCUS.
+Results go to ~/arm_bench/results.csv (also shown in the Results tab).

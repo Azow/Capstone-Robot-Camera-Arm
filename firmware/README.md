@@ -10,6 +10,19 @@ timed segments, and steps every joint from a 50 kHz timer interrupt. The bring-u
 (`INFO`, `DRIVERS`, `ENDSTOPS`, `SPIN`) are still there for testing by hand. Homing (step 5)
 is not written yet: `HOME` answers `NOT_IMPLEMENTED`; use `SETPOS` on the bench.
 
+## Bench build and run build
+
+`#define BENCH_TESTS` near the top of the sketch (Settings) picks which firmware you flash:
+
+- `1`, the **bench build**: everything plus the bench test commands: `STALLSEEK` (the focus
+  stall test that arm_bench's motor_test window runs; it can drive a motor into a hard stop
+  on purpose) and single-joint power (`ENABLE THETA`, `DISABLE Z YAW`, and `power=` in
+  `STATUS`) so a test powers only the motor under test. The run build leaves them out.
+- `0`, the **run build**: for running paths on the arm.
+
+`INFO` prints `build=bench` or `build=run`. It is one sketch with a switch, not two copies,
+so pins, currents and the protocol can't drift apart between the two.
+
 ## Files
 
 The whole firmware is one Arduino sketch, `arm_firmware/`:
@@ -125,6 +138,7 @@ Bring-up commands, only while IDLE:
 | `DRIVERS` | Configures every driver and checks it answers. Needs motor power. Run again after motor power is cycled (drivers forget their settings). |
 | `SPIN <joint> <steps> [rate]` | Move one joint at a constant rate (steps/s, default 400, no acceleration). Negative steps reverse. Type anything to abort. Needs `ENABLE`; clears `homed`. |
 | `ENDSTOPS` | Raw endstop levels (pulled up: 1 = high, also what a disconnected sensor reads) |
+| `STALLSEEK FOCUS <steps> <rate> <sgthrs> <current_ma>` | **Bench build only.** Turn focus up to `<steps>` (signed) at a constant `<rate>` steps/s (max 20000), at `<current_ma>` (50..run current), until the TMC2209's StallGuard trips (`SG_RESULT <= 2 x sgthrs`, read on the DIAG pin STOP_2). DIAG is ignored for the first 100 ms. Prints `SG t=<ms> steps=<n> sg=<SG_RESULT>` about every 25 ms, then `OK result=stall\|limit\|aborted steps=<signed> t_ms=<ms> sg_min=<n>`. Type anything to abort. Needs `ENABLE` and `DRIVERS`; keeps the position (and `homed`); puts the run current back after. |
 
 `ENABLE` / `DISABLE` switch **all** drivers. **Z falls when disabled unless supported.**
 
